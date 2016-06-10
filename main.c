@@ -18,7 +18,7 @@
 #include "init.h"
 #include "helpers.h"
 #include "serial.h"
-#include "serial_protocol.h"
+#include "serial_esclink.h"
 #include "param.h"
 #include "adc.h"
 #include "pwm.h"
@@ -51,7 +51,7 @@ static void main_loop(float dt) {
         motor_set_mode(MOTOR_MODE_FOC_CURRENT);
     }
 
-    serial_protocol_update();
+    serial_esclink_update();
 }
 
 int main(void)

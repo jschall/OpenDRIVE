@@ -1,5 +1,5 @@
-#ifndef SERIAL_MESSAGES_H
-#define SERIAL_MESSAGES_H
+#ifndef ESCLINK_MESSAGES_H
+#define ESCLINK_MESSAGES_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -30,5 +30,4 @@ struct ser_msg_param_value {
     uint16_t crc16;
 } __attribute__((packed));
 
-
-#endif // SERIAL_MESSAGES_H
+#endif // ESCLINK_MESSAGES_H
