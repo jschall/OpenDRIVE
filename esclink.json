@@ -1,0 +1,27 @@
+{
+    "messages": [
+        {
+            "key": 0,
+            "name": "PARAM_REQUEST_BY_INDEX",
+            "fields": [
+                { "name": "param_idx", "type": "uint16_t" }
+            ]
+        },
+        {
+            "key": 1,
+            "name": "PARAM_DATA",
+            "fields": [
+                { "name": "param_idx", "type": "uint16_t" },
+                { "name": "param_name", "type": "char[16]" },
+                { "name": "param_value", "type": "float" }
+            ]
+        },
+        {
+            "key": 2,
+            "name": "PARAM_INDEX_INVALID",
+            "fields": [
+                { "name": "param_idx", "type": "uint16_t" }
+            ]
+        }
+    ]
+}
