@@ -56,8 +56,8 @@ static void main_loop(float dt) {
 
 int main(void)
 {
-//     uint32_t last_t_us = 0;
     uint8_t prev_smpidx = 0;
+    uint32_t last_print_us = 0;
 
     clock_init();
     timing_init();
@@ -84,12 +84,31 @@ int main(void)
         prev_smpidx = smpidx;
         float dt = d_smp*1.0f/18000.0f;
 
-//         uint32_t tnow_us = micros();
-//         float dt_real = (tnow_us-last_t_us)*1.0e-6f;
-//         last_t_us = tnow_us;
-//         uint8_t usagepct = (1.0f-(tnow_us-t1_us)*1.0e-6f / dt)*100.0f;
-
         main_loop(dt);
+        
+        uint32_t tnow = micros();
+        
+        if (tnow-last_print_us > 16666) {
+            drv_print_register(0x1);
+            drv_print_register(0x2);
+            drv_print_register(0x3);
+            drv_print_register(0x4);
+            drv_print_register(0x5);
+            drv_print_register(0x6);
+            drv_print_register(0x7);
+            drv_print_register(0x8);
+            drv_print_register(0x9);
+            drv_print_register(0xA);
+            drv_print_register(0xB);
+            drv_print_register(0xC);
+
+            char buf[30];
+            int n;
+            n = sprintf(buf, "%u\n", drv_get_fault());
+            serial_send_dma(n,buf);
+            
+            last_print_us = tnow;
+        }
     }
 
     return 0;

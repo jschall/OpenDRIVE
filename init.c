@@ -4,6 +4,8 @@
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/flash.h>
 
+#define USE_CRYSTAL
+
 void clock_init(void)
 {
     rcc_osc_on(RCC_HSE);

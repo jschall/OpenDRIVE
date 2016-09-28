@@ -1,6 +1,7 @@
 #include "motor.h"
 
 #include <string.h>
+#include <stdio.h>
 #include "helpers.h"
 #include "pwm.h"
 #include "adc.h"
@@ -15,8 +16,8 @@ static uint8_t elec_rots_per_mech_rot = 7;
 static float elec_theta_bias = 0.0f;
 static bool swap_phases = false;
 static const float curr_KR = 9.0f;
-static const float curr_KP = 10.0f;
-static const float curr_KI = 10000.0f;
+static const float curr_KP = 20.0f;
+static const float curr_KI = 20000.0f;
 static const float vsense_div = 20.0f;
 static const float csa_G = 80.0f;
 static const float csa_R = 0.001f;
@@ -154,6 +155,11 @@ void motor_run_commutation(float dt)
 
                         // rotating the field in the positive direction should have rotated the encoder in the positive direction too
                         swap_phases = angle_diff < 0;
+                        
+                        char buf[30];
+                        int n;
+                        n = sprintf(buf, "%f %u\n", angle_diff, elec_rots_per_mech_rot);
+                        serial_send_dma(n,buf);
 
                         // update the adc measurements because swap_phases could have changed
                         retrieve_adc_measurements();
@@ -185,7 +191,7 @@ void motor_run_commutation(float dt)
 
         case MOTOR_MODE_TEST: {
             float theta = wrap_2pi(0.1f*millis()*1e-3f);
-            float v = 1.0f;//constrain_float(calibration_voltage/vbatt_m, 0.0f, max_duty);
+            float v = constrain_float(calibration_voltage/vbatt_m, 0.0f, max_duty);
 
             alpha = v * cosf(theta);
             beta = v * sinf(theta);
@@ -275,7 +281,11 @@ static void update_estimates(float dt)
 
     // update the transformed current measurements
     transform_a_b_c_to_alpha_beta_gamma(ia_m, ib_m, ic_m, &ialpha_m, &ibeta_m, &igamma_m);
-    transform_alpha_beta_to_d_q(ialpha_m, ibeta_m, &id_est, &iq_est);
+    
+    float id, iq;
+    transform_alpha_beta_to_d_q(ialpha_m, ibeta_m, &id, &iq);
+    id_est += (id-id_est)*0.2f;
+    iq_est += (iq-iq_est)*0.2f;
 }
 
 static void load_pid_configs(void)
