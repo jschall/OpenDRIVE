@@ -34,3 +34,4 @@ enum motor_mode_t motor_get_mode(void);
 float motor_get_phys_rotor_angle(void);
 float motor_get_phys_rotor_ang_vel(void);
 float motor_get_elec_rotor_angle(void);
+float motor_get_vbatt(void);

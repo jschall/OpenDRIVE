@@ -29,15 +29,16 @@
 static uint8_t elec_rots_per_mech_rot = 7;
 static float elec_theta_bias = 0.0f;
 static bool swap_phases = false;
-static const float curr_KR = 9.0f;
-static const float curr_KP = 50.0f;
-static const float curr_KI = 100000.0f;
+static const float curr_KR = 0.0f;
+static const float curr_KP = 0.2f;
+static const float curr_KI = 1.0f;
 static const float vsense_div = 20.0f;
 static const float csa_G = 10.0f;
-static const float csa_R = 0.02f;
+static const float csa_R = 0.001f;
 // it takes approximately 50 timer clock cycles to sample the current sensors. PWM period is 2000 timer clock cycles
+// TODO reconstruct current measurement to allow max_duty=1.0
 static const float max_duty = 0.95f;
-static const float calibration_voltage = 10.0f;
+static const float calibration_voltage = 1.0f;
 
 static float csa_cal[3] = {0.0f, 0.0f, 0.0f}; // current sense amplifier calibration
 static float vbatt_m = 0.0f; // battery voltage
@@ -61,9 +62,6 @@ struct curr_pid_state_s iq_pid_state;
 
 struct curr_pid_param_s id_pid_param;
 struct curr_pid_state_s id_pid_state;
-
-struct curr_pid_param_s io_pid_param;
-struct curr_pid_state_s io_pid_state;
 
 static void retrieve_adc_measurements(void);
 static void retrieve_encoder_measurement(void);
@@ -259,6 +257,11 @@ float motor_get_phys_rotor_ang_vel(void)
 float motor_get_elec_rotor_angle(void)
 {
     return mech_theta_m;
+}
+
+float motor_get_vbatt(void)
+{
+    return vbatt_m;
 }
 
 static void retrieve_adc_measurements(void)

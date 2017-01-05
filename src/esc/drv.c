@@ -147,7 +147,8 @@ void drv_init(void)
     drv_write_register_bits(0x6,0,3,0b1011); // low-side gate driver peak source current = 1.0A
     drv_write_register_bits(0xA,0,5,0b000000); // all CS amplifier gains = 10
     drv_write_register_bits(0xA,6,7,0b00); // current shunt blanking time 00=0us 01=0.5us 10=2.5us 11=10us
-    drv_write_register_bits(0xC,3,7,0b11101); // VDS comparator threshold 1.892V
+    drv_write_register_bits(0xC,0,2,0b000); // Latched shutdown when over-current detected
+    drv_write_register_bits(0xC,3,7,0b01001); // VDS comparator threshold 0.175V
 
     drv_write_register_bits(0x9,1,1,0b1); // clear faults
 }
@@ -264,21 +265,8 @@ void drv_print_faults(void) {
 
 void drv_print_register(uint8_t reg)
 {
-    semihost_debug_printf("0x%X 0b");
-
-    uint8_t i;
-    char buf[20];
-    int n;
-    n = sprintf(buf, "0x%X 0b", reg);
-    for(i=0; i<n; i++) {
-        usart_send_blocking(USART1, buf[i]);
-    }
-
     uint16_t val = drv_read_register(reg);
-    for(i=0; i<=10; i++) {
-        usart_send_blocking(USART1, ((val&((1<<10)>>i)) != 0) ? '1' : '0');
-    }
-    usart_send_blocking(USART1, '\n');
+    semihost_debug_printf("0x%02X 0x%04X\n", reg, val);
 }
 
 bool drv_get_fault(void)

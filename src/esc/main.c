@@ -29,6 +29,7 @@
 #include <esc/encoder.h>
 #include <esc/can.h>
 #include <esc/program.h>
+#include <esc/semihost_debug.h>
 #include <stdio.h>
 
 int main(void)
@@ -67,6 +68,7 @@ int main(void)
 
         uint32_t tnow_ms = millis();
         if (tnow_ms-last_print_ms >= 2000) {
+            semihost_debug_printf("%d mV\n", (int32_t)(motor_get_vbatt()*1000));
             drv_print_faults();
             last_print_ms = tnow_ms;
             drv_write_register_bits(0x9,1,1,0b1); // clear faults
