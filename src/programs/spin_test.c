@@ -25,10 +25,12 @@ void program_init(void) {
     motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
 }
 
+static uint8_t sample_count = 0;
+
 void program_event_adc_sample(float dt) {
     motor_update_state(dt);
 
-    motor_set_iq_ref(10.0f);
+    motor_set_iq_ref(15.0f);
 
     if (motor_get_mode() == MOTOR_MODE_DISABLED) {
         motor_set_mode(MOTOR_MODE_FOC_CURRENT);

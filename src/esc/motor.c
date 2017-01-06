@@ -28,16 +28,16 @@
 // config things - to be made params later
 static uint8_t elec_rots_per_mech_rot = 7;
 static float elec_theta_bias = 0.0f;
-static bool swap_phases = false;
+static bool reverse = false;
 static const float curr_KR = 0.0f;
 static const float curr_KP = 0.2f;
-static const float curr_KI = 1.0f;
+static const float curr_KI = 2.0f;
 static const float vsense_div = 20.0f;
 static const float csa_G = 10.0f;
 static const float csa_R = 0.001f;
 // it takes approximately 50 timer clock cycles to sample the current sensors. PWM period is 2000 timer clock cycles
 // TODO reconstruct current measurement to allow max_duty=1.0
-static const float max_duty = 0.95f;
+static const float max_duty = 1.00f;
 static const float calibration_voltage = 1.0f;
 
 static float csa_cal[3] = {0.0f, 0.0f, 0.0f}; // current sense amplifier calibration
@@ -135,7 +135,7 @@ void motor_run_commutation(float dt)
 
             svgen(alpha, beta, &a, &b, &c);
 
-            if (!swap_phases) {
+            if (!reverse) {
                 pwm_set_phase_duty(a, b, c);
             } else {
                 pwm_set_phase_duty(a, c, b);
@@ -166,7 +166,7 @@ void motor_run_commutation(float dt)
                         elec_rots_per_mech_rot = (uint8_t)roundf((M_PI_F)/fabsf(angle_diff));
 
                         // rotating the field in the positive direction should have rotated the encoder in the positive direction too
-                        swap_phases = angle_diff < 0;
+                        reverse = angle_diff < 0;
 
                         encoder_calibration_state.step = 2;
                     }
@@ -273,7 +273,21 @@ static void retrieve_adc_measurements(void)
     float csa_v_0, csa_v_1, csa_v_2;
     adc_get_csa_v(&csa_v_0, &csa_v_1, &csa_v_2);
     ia_m = (csa_v_0-csa_cal[0])/(csa_G*csa_R);
-    if (!swap_phases) {
+    ib_m = (csa_v_1-csa_cal[1])/(csa_G*csa_R);
+    ic_m = (csa_v_2-csa_cal[2])/(csa_G*csa_R);
+
+    float duty_a, duty_b, duty_c;
+    pwm_get_phase_duty(&duty_a, &duty_b, &duty_c);
+
+    if (duty_a > duty_b && duty_a > duty_c) {
+        ia_m = -ib_m-ic_m;
+    } else if (duty_b > duty_a && duty_b > duty_c) {
+        ib_m = -ia_m-ic_m;
+    } else {
+        ic_m = -ia_m-ib_m;
+    }
+
+    if (!reverse) {
         ib_m = (csa_v_1-csa_cal[1])/(csa_G*csa_R);
         ic_m = (csa_v_2-csa_cal[2])/(csa_G*csa_R);
     } else {
