@@ -35,3 +35,5 @@ float motor_get_phys_rotor_angle(void);
 float motor_get_phys_rotor_ang_vel(void);
 float motor_get_elec_rotor_angle(void);
 float motor_get_vbatt(void);
+float motor_get_iq_est(void);
+void motor_print_data(float dt);
