@@ -38,9 +38,8 @@ void serial_init(void)
     rcc_periph_clock_enable(RCC_DMA1);
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO6|GPIO7);
     gpio_set_af(GPIOB, GPIO_AF7, GPIO6|GPIO7);
-    const uint32_t baud = 4500000;
-
-    uint32_t clock = rcc_apb1_frequency;
+//     const uint32_t baud = 4500000;
+//     uint32_t clock = rcc_apb1_frequency;
     USART_BRR(USART1) = 0x10;//((2 * clock) + baud) / (2 * baud);
     usart_set_databits(USART1, 8);
     usart_set_stopbits(USART1, USART_STOPBITS_1);

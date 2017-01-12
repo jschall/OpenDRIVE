@@ -34,11 +34,11 @@ static float t_max = 0.2f;
 static const float f0 = 100.0f;
 static const float f1 = 2000.0f;
 
-void program_event_adc_sample(float dt) {
+void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
     uint32_t tnow = micros();
     float t = (tnow-tbegin_us)*1.0e-6f;
 
-    motor_update_state(dt);
+    motor_update_state(dt, adc_sample);
 
     motor_set_iq_ref(1.0f);
 

@@ -34,7 +34,7 @@
 
 int main(void)
 {
-    uint8_t prev_smpidx = 0;
+    uint8_t prev_seq = 0;
 
     clock_init();
     timing_init();
@@ -55,16 +55,17 @@ int main(void)
     // main loop
     while(1) {
         // wait specified time for adc measurement
-        uint8_t smpidx, d_smp;
+        struct adc_sample_s adc_sample;
+        uint8_t d_seq;
         do {
             encoder_read_angle();
-            smpidx = adc_get_smpidx();
-            d_smp = smpidx-prev_smpidx;
-        } while (d_smp < 3);
-        prev_smpidx = smpidx;
-        float dt = d_smp*adc_get_smp_period();
+            adc_get_sample(&adc_sample);
+            d_seq = adc_sample.seq-prev_seq;
+        } while (d_seq < 3);
+        prev_seq = adc_sample.seq;
+        float dt = d_seq*adc_get_smp_period();
 
-        program_event_adc_sample(dt);
+        program_event_adc_sample(dt, &adc_sample);
 
         uint32_t tnow_ms = millis();
         if (tnow_ms-last_print_ms >= 2000) {

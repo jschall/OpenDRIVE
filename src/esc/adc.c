@@ -28,11 +28,10 @@
 #define SAMPLE_PERIOD (1.0f/SAMPLE_FREQ)
 #define NUM_CONVERSIONS 6UL
 
-static volatile float csa_v[3] = {0,0,0};
-static volatile float vsense_v = 0.0f;
 static volatile uint16_t adcbuf[NUM_CONVERSIONS];
-static volatile uint8_t smpidx = 0;
 static volatile uint32_t errcnt = 0;
+static volatile uint8_t sample_idx = 0;
+static volatile struct adc_sample_s sample[2];
 
 void adc_init(void)
 {
@@ -144,16 +143,21 @@ void adc1_2_isr(void)
 
 void dma1_channel1_isr(void)
 {
+    uint8_t i;
     if ((DMA_ISR(DMA1)&(1UL<<1)) != 0) {
         // TCIF1 is asserted
-        smpidx++;
-        csa_v[0] = adcbuf[3]*3.3f/4096.0f;
-        csa_v[1] = adcbuf[4]*3.3f/4096.0f;
-        csa_v[2] = adcbuf[5]*3.3f/4096.0f;
-        vsense_v = 0.0f;
-        uint8_t i;
-        for (i=0; i<3; i++) vsense_v += adcbuf[i];
-        vsense_v *= 3.3f/4096.0f/3.0f;
+        uint8_t write_idx = (sample_idx+1)&1U;
+
+        sample[write_idx].seq = sample[sample_idx].seq+1;
+        sample[write_idx].t_us = micros();
+        sample[write_idx].csa_v[0] = adcbuf[3]*3.3f/4096.0f;
+        sample[write_idx].csa_v[1] = adcbuf[4]*3.3f/4096.0f;
+        sample[write_idx].csa_v[2] = adcbuf[5]*3.3f/4096.0f;
+        sample[write_idx].vsense_v = 0.0f;
+        for (i=0; i<3; i++) sample[write_idx].vsense_v += adcbuf[i];
+        sample[write_idx].vsense_v *= 3.3f/4096.0f/3.0f;
+
+        sample_idx = write_idx;
 
         DMA_IFCR(DMA1) |= 1UL<<1; // clear interrupt flag
     }
@@ -161,25 +165,13 @@ void dma1_channel1_isr(void)
 
 void adc_wait_for_sample(void)
 {
-    uint8_t smpidx_prev = smpidx;
-    while(smpidx==smpidx_prev);
+    uint8_t seq_prev = sample[sample_idx].seq;
+    while(sample[sample_idx].seq==seq_prev);
 }
 
-void adc_get_csa_v(float *phaseA, float *phaseB, float *phaseC)
+void adc_get_sample(struct adc_sample_s* ret)
 {
-    *phaseA = csa_v[0];
-    *phaseB = csa_v[1];
-    *phaseC = csa_v[2];
-}
-
-float adc_get_vsense_v(void)
-{
-    return vsense_v;
-}
-
-uint8_t adc_get_smpidx(void)
-{
-    return smpidx;
+    memcpy(ret, (struct adc_sample_s*)&sample[sample_idx], sizeof(struct adc_sample_s));
 }
 
 uint32_t adc_get_errcnt(void)

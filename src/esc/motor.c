@@ -44,10 +44,11 @@ static const float csa_R = 0.001f;
 static const float max_duty = 1.0f;
 static const float calibration_voltage = 2.0f;
 
+static uint32_t csa_meas_t_us = 0;
 static float csa_cal[3] = {0.0f, 0.0f, 0.0f}; // current sense amplifier calibration
 static float vbatt_m = 0.0f; // battery voltage
 static float ia_m = 0.0f, ib_m = 0.0f, ic_m = 0.0f; // phase currents
-static float i_alpha_m = 0.0f, i_beta_m = 0.0f, igamma_m = 0.0f; // alpha-beta-gamma (clarke) transform of phase currents
+static float i_alpha_m = 0.0f, i_beta_m = 0.0f; // alpha-beta-gamma (clarke) transform of phase currents
 static float id_meas = 0.0f, iq_meas = 0.0f; // dqo transform of phase currents
 static float mech_theta_m = 0.0f; // mechanical rotor angle
 static float prev_mech_theta_m = 0.0f; // previous mechanical rotor angle for differentiation
@@ -68,11 +69,11 @@ static struct curr_pid_state_s iq_pid_state;
 static struct curr_pid_param_s id_pid_param;
 static struct curr_pid_state_s id_pid_state;
 
-static void retrieve_adc_measurements(void);
+static void process_adc_measurements(struct adc_sample_s* adc_sample);
 static void retrieve_encoder_measurement(void);
 static void update_estimates(float dt);
 static void load_pid_configs(void);
-static void transform_a_b_c_to_alpha_beta_gamma(float a, float b, float c, float* alpha, float* beta, float* gamma);
+static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alpha, float* beta);
 static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta);
 static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q);
 static void svgen(float alpha, float beta, float* a, float* b, float* c);
@@ -336,8 +337,8 @@ void motor_print_data(float dt) {
     uint8_t slip_msg[64];
     uint8_t slip_msg_len = 0;
     uint8_t i;
-    uint32_t tnow_us = micros();
-    float omega_e = mech_omega_est*mot_n_poles;
+//     uint32_t tnow_us = micros();
+//     float omega_e = mech_omega_est*mot_n_poles;
 
     for (i=0; i<sizeof(float); i++) {
         slip_encode_and_append(((uint8_t*)&(state[1]))[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
@@ -377,25 +378,23 @@ void motor_print_data(float dt) {
 
     slip_msg[slip_msg_len++] = SLIP_END;
 
-    serial_send_dma(slip_msg_len, slip_msg);
+    serial_send_dma(slip_msg_len, (char*)slip_msg);
 }
 
 void motor_init(void)
 {
     // calibrate phase currents
     uint16_t i;
+    struct adc_sample_s adc_sample;
     drv_csa_cal_mode_on();
     usleep(50);
-    csa_cal[0] = 0;
-    csa_cal[1] = 0;
-    csa_cal[2] = 0;
+    memset(csa_cal, 0, sizeof(csa_cal));
     for(i=0; i<1000; i++) {
-        float csa_v_a, csa_v_b, csa_v_c;
         adc_wait_for_sample();
-        adc_get_csa_v(&csa_v_a, &csa_v_b, &csa_v_c);
-        csa_cal[0] += csa_v_a;
-        csa_cal[1] += csa_v_b;
-        csa_cal[2] += csa_v_c;
+        adc_get_sample(&adc_sample);
+        csa_cal[0] += adc_sample.csa_v[0];
+        csa_cal[1] += adc_sample.csa_v[1];
+        csa_cal[2] += adc_sample.csa_v[2];
     }
     drv_csa_cal_mode_off();
     csa_cal[0] /= 1000;
@@ -408,9 +407,9 @@ void motor_init(void)
     mech_omega_est = 0.0f;
 }
 
-void motor_update_state(float dt)
+void motor_update_state(float dt, struct adc_sample_s* adc_sample)
 {
-    retrieve_adc_measurements();
+    process_adc_measurements(adc_sample);
     retrieve_encoder_measurement();
     update_estimates(dt);
 }
@@ -578,23 +577,23 @@ float motor_get_vbatt(void)
     return vbatt_m;
 }
 
-float motor_get_iq_meas(void)
+static void process_adc_measurements(struct adc_sample_s* adc_sample)
 {
-    return iq_meas;
-}
+    // Retrieve battery measurement
+    vbatt_m = adc_sample->vsense_v * vsense_div;
 
-static void retrieve_adc_measurements(void)
-{
-    // retrieve battery measurement
-    vbatt_m = adc_get_vsense_v()*vsense_div;
+    // Retrieve current sense amplifier measurement
+    csa_meas_t_us = adc_sample->t_us;
+    ia_m = (adc_sample->csa_v[0]-csa_cal[0])/(csa_G*csa_R);
+    if (!reverse) {
+        ib_m = (adc_sample->csa_v[1]-csa_cal[1])/(csa_G*csa_R);
+        ic_m = (adc_sample->csa_v[2]-csa_cal[2])/(csa_G*csa_R);
+    } else {
+        ib_m = (adc_sample->csa_v[2]-csa_cal[2])/(csa_G*csa_R);
+        ic_m = (adc_sample->csa_v[1]-csa_cal[1])/(csa_G*csa_R);
+    }
 
-    // retrieve current sense amplifier measurement
-    float csa_v_0, csa_v_1, csa_v_2;
-    adc_get_csa_v(&csa_v_0, &csa_v_1, &csa_v_2);
-    ia_m = (csa_v_0-csa_cal[0])/(csa_G*csa_R);
-    ib_m = (csa_v_1-csa_cal[1])/(csa_G*csa_R);
-    ic_m = (csa_v_2-csa_cal[2])/(csa_G*csa_R);
-
+    // Reconstruct current measurement
     float duty_a, duty_b, duty_c;
     pwm_get_phase_duty(&duty_a, &duty_b, &duty_c);
 
@@ -604,14 +603,6 @@ static void retrieve_adc_measurements(void)
         ib_m = -ia_m-ic_m;
     } else {
         ic_m = -ia_m-ib_m;
-    }
-
-    if (!reverse) {
-        ib_m = (csa_v_1-csa_cal[1])/(csa_G*csa_R);
-        ic_m = (csa_v_2-csa_cal[2])/(csa_G*csa_R);
-    } else {
-        ib_m = (csa_v_2-csa_cal[2])/(csa_G*csa_R);
-        ic_m = (csa_v_1-csa_cal[1])/(csa_G*csa_R);
     }
 }
 
@@ -628,10 +619,11 @@ static void update_estimates(float dt)
     mech_omega_est += (wrap_pi(mech_theta_m-prev_mech_theta_m)/dt - mech_omega_est) * alpha;
     prev_mech_theta_m = mech_theta_m;
 
-    // update the transformed current measurements
-    transform_a_b_c_to_alpha_beta_gamma(ia_m, ib_m, ic_m, &i_alpha_m, &i_beta_m, &igamma_m);
-    transform_alpha_beta_to_d_q(i_alpha_m, i_beta_m, &id_meas, &iq_meas);
+    transform_a_b_c_to_alpha_beta(ia_m, ib_m, ic_m, &i_alpha_m, &i_beta_m);
+
     ekf_update(dt);
+
+    transform_alpha_beta_to_d_q(i_alpha_m, i_beta_m, &id_meas, &iq_meas);
 }
 
 static void load_pid_configs(void)
@@ -641,11 +633,10 @@ static void load_pid_configs(void)
     id_pid_param.K_I = iq_pid_param.K_I = curr_KI;
 }
 
-static void transform_a_b_c_to_alpha_beta_gamma(float a, float b, float c, float* alpha, float* beta, float* gamma)
+static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alpha, float* beta)
 {
     *alpha = 0.816496580927726f*a - 0.408248290463863f*b - 0.408248290463863f*c;
     *beta = 0.707106781186547f*b - 0.707106781186547f*c;
-    *gamma = 0.577350269189626f*a + 0.577350269189626f*b + 0.577350269189626f*c;
 }
 
 static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta)
