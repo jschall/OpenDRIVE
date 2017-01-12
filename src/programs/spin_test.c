@@ -21,10 +21,11 @@
 #include <esc/motor.h>
 #include <esc/timing.h>
 #include <esc/semihost_debug.h>
+#include <esc/drv.h>
 
 void program_init(void) {
     // Calibrate the encoder
-    motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
+//     motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
 }
 
 static uint32_t tbegin_us;
@@ -39,17 +40,17 @@ void program_event_adc_sample(float dt) {
 
     motor_update_state(dt);
 
-//     motor_set_iq_ref(3.0f);
+    motor_set_iq_ref(1.0f);
 
-    float beta = t_max / logf(f1/f0);
-    float phi = 2*M_PI_F*beta*f0*(powf(f1/f0, t/t_max)-1.0f);
-
-
-    if (started && t < t_max) {
-        motor_set_iq_ref(3.0f*sin(phi));
-    } else {
-        motor_set_iq_ref(0);
-    }
+//     float beta = t_max / logf(f1/f0);
+//     float phi = 2*M_PI_F*beta*f0*(powf(f1/f0, t/t_max)-1.0f);
+//
+//
+//     if (started && t < t_max) {
+//         motor_set_iq_ref(3.0f*sin(phi));
+//     } else {
+//         motor_set_iq_ref(0);
+//     }
 
     if (motor_get_mode() == MOTOR_MODE_DISABLED && !started) {
         motor_set_mode(MOTOR_MODE_FOC_CURRENT);
@@ -71,7 +72,7 @@ void program_event_adc_sample(float dt) {
 
     motor_run_commutation(dt);
 
-    if (started && t < t_max) {
+    if (started && !drv_get_fault()) {
         motor_print_data(dt);
     }
 }

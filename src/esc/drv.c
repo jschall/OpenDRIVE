@@ -222,10 +222,10 @@ void drv_print_faults(void) {
         return;
     }
 
-    if (drv_get_fault()) {
-        semihost_debug_printf("DRV: FPIN\n");
-        printed = true;
-    }
+//     if (drv_get_fault()) {
+//         semihost_debug_printf("DRV: FPIN\n");
+//         printed = true;
+//     }
 
     reg_val = drv_read_register(0x1);
     for(i=0; i<=10; i++) {
@@ -272,7 +272,8 @@ void drv_print_register(uint8_t reg)
 
 bool drv_get_fault(void)
 {
-    return !gpio_get(GPIOF, GPIO1);
+    return (drv_read_register(0x1) & (1<<10)) != 0;
+    //return !gpio_get(GPIOF, GPIO1);
 }
 
 void drv_csa_cal_mode_on(void)

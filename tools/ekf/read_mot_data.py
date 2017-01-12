@@ -42,12 +42,16 @@ with open(sys.argv[1], 'rb') as csvfile:
         frame, buf = slip_decode(buf)
         if frame is not None:
             frame_data = dict(zip(('t_us','dt','theta_e', 'omega_e', 'i_alpha','i_beta','u_alpha','u_beta'),struct.unpack(struct_fmt,frame)))
-            frame_data['i_alpha'] *= (2./3.)/sqrt(2./3.) # for non-power-invariant transform
-            frame_data['i_beta'] *= (2./3.)/sqrt(2./3.)
-            #frame_data['u_alpha'] *= 1./sqrt(2)
-            #frame_data['u_beta'] *= 1./sqrt(2)
-            frame_data['u_alpha'] *= 1./sqrt(3) # for non-power-invariant transform
-            frame_data['u_beta'] *= 1./sqrt(3)
+            #frame_data['u_alpha'] *= 1./sqrt(3)
+            #frame_data['u_beta'] *= 1./sqrt(3)
+
+            #frame_data['u_alpha'] *= 1./sqrt(2./3.)
+            #frame_data['u_beta'] *= 1./sqrt(2./3.)
+
+            #frame_data['i_alpha'] = frame_data['i_alpha'] * (2./3.)/sqrt(2./3.) # for non-power-invariant transform
+            #frame_data['i_beta'] = frame_data['i_beta'] * (2./3.)/sqrt(2./3.)
+
+
             for key,val in frame_data.iteritems():
                 data[key].append(val)
 
