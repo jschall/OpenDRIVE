@@ -96,3 +96,6 @@ dqo = simplify(T_aby_dqo*aby_sym)
 print "aby->dqo"
 print double2float(MyPrinter().doprint(dqo[0,0], 'd'))
 print double2float(MyPrinter().doprint(dqo[1,0], 'q'))
+
+delta_theta = Symbol('delta_theta')
+pprint(simplify((T_dqo_aby.subs(theta, theta+delta_theta) * T_aby_dqo * aby_sym).subs(theta, 0))[0:2,0])

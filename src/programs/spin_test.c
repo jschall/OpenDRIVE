@@ -25,12 +25,12 @@
 
 void program_init(void) {
     // Calibrate the encoder
-//     motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
+    motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
 }
 
 static uint32_t tbegin_us;
 static bool started = false;
-static float t_max = 0.2f;
+static float t_max = 3.0f;
 static const float f0 = 100.0f;
 static const float f1 = 2000.0f;
 
@@ -46,6 +46,10 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
 //     float phi = 2*M_PI_F*beta*f0*(powf(f1/f0, t/t_max)-1.0f);
 //
 //
+    if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
+        semihost_debug_printf("%f\n", motor_get_phys_rotor_ang_vel());
+        motor_set_mode(MOTOR_MODE_DISABLED);
+    }
 //     if (started && t < t_max) {
 //         motor_set_iq_ref(3.0f*sin(phi));
 //     } else {

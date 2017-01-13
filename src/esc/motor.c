@@ -32,6 +32,7 @@
 // config things - to be made params later
 static uint8_t mot_n_poles = 7;
 static float elec_theta_bias = 0.0f;
+// TODO support reverse
 static bool reverse = false;
 static const float curr_KR = 0.0f;
 static const float curr_KP = .1f;
@@ -53,11 +54,22 @@ static float id_meas = 0.0f, iq_meas = 0.0f; // dqo transform of phase currents
 static float mech_theta_m = 0.0f; // mechanical rotor angle
 static float prev_mech_theta_m = 0.0f; // previous mechanical rotor angle for differentiation
 static float elec_theta_m = 0.0f; // electrical rotor angle
+static float elec_theta_est = 0.0f;
+static float elec_omega_est = 0.0f;
 static float mech_omega_est = 0.0f; // mechanical rotor angular velocity
 static float u_alpha = 0.0f, u_beta = 0.0f;
 static enum motor_mode_t motor_mode = MOTOR_MODE_DISABLED;
 
-struct {
+// double-buffered phase output
+static uint8_t phase_output_idx = 0;
+static struct {
+    uint32_t t_us;
+    float duty_alpha;
+    float duty_beta;
+    float omega;
+} phase_output[2];
+
+static struct {
     uint32_t start_time_us;
     uint8_t step;
     float mech_theta_0;
@@ -74,9 +86,10 @@ static void retrieve_encoder_measurement(void);
 static void update_estimates(float dt);
 static void load_pid_configs(void);
 static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alpha, float* beta);
-static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta);
-static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q);
-static void svgen(float alpha, float beta, float* a, float* b, float* c);
+static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta);
+static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q);
+static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega);
+static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC);
 
 static bool ekf_running = false;
 static float state[5];
@@ -257,128 +270,54 @@ static void ekf_update(float dt)
 
     memcpy(state, state_n, sizeof(state));
     memcpy(cov, cov_n, sizeof(cov));
-
-//     semihost_debug_printf("%u\n", t2-t1);
-//
-//     state_n[1] = fmodf(state_n[1], 2.0f*M_PI_F);
-//
-//     if (ekf_running) {
-//         uint8_t i;
-//
-//         ekf_update_count++;
-//
-//         for (i=0; i<4; i++) {
-//             if (isnan(state_n[i]) || isinf(state_n[i])) {
-//                 ekf_running = false;
-//             }
-//         }
-//         for (i=0; i<10; i++) {
-//             if (isnan(cov_n[i]) || isinf(cov_n[i])) {
-//                 ekf_running = false;
-//             }
-//         }
-//
-//         if (!ekf_running) {
-//             for (i=0; i<67; i++) {
-//                 semihost_debug_printf("subx[%u] %u %u\n", i, isnan(subx[i]), isinf(subx[i]));
-//             }
-//             for (i=0; i<4; i++) {
-//                 semihost_debug_printf("state_n[%u] %u %u\n", i, isnan(state_n[i]), isinf(state_n[i]));
-//             }
-//             for (i=0; i<10; i++) {
-//                 semihost_debug_printf("cov_n[%u] %u %u\n", i, isnan(cov_n[i]), isinf(cov_n[i]));
-//             }
-//         }
-//
-//         if (ekf_update_count > 500) {
-//             ekf_running = false;
-//         }
-//
-//         memcpy(state, state_n, sizeof(state));
-//         memcpy(cov, cov_n, sizeof(cov));
-//
-//
-//         struct canbus_msg msg;
-//         msg.id = 50+msg_idx;
-//         msg.ide = false;
-//         msg.rtr = false;
-//         msg.dlc = 8;
-//
-//         switch (msg_idx) {
-//             case 0: {
-//                 memcpy(&msg.data[0], &state[0], sizeof(float));
-//                 memcpy(&msg.data[4], &mech_omega_est, sizeof(float));
-//                 break;
-//             }
-//             case 1:
-//                 memcpy(&msg.data[0], &state[1], sizeof(float));
-//                 memcpy(&msg.data[4], &elec_theta_m, sizeof(float));
-//                 break;
-//             case 2:
-//                 memcpy(&msg.data[0], &state[2], sizeof(float));
-//                 memcpy(&msg.data[4], &id_meas, sizeof(float));
-//                 break;
-//             case 3:
-//                 memcpy(&msg.data[0], &state[3], sizeof(float));
-//                 memcpy(&msg.data[4], &iq_meas, sizeof(float));
-//                 break;
-//         };
-//         canbus_send_message(&msg);
-//
-//         elec_theta_m = state[1];
-//
-//         msg_idx = (msg_idx+1)%4;
-//     }
-
-
 }
 
 void motor_print_data(float dt) {
     uint8_t slip_msg[64];
     uint8_t slip_msg_len = 0;
     uint8_t i;
-//     uint32_t tnow_us = micros();
-//     float omega_e = mech_omega_est*mot_n_poles;
+    uint32_t tnow_us = micros();
+    float omega_e = mech_omega_est*mot_n_poles;
 
-    for (i=0; i<sizeof(float); i++) {
-        slip_encode_and_append(((uint8_t*)&(state[1]))[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+//     for (i=0; i<sizeof(float); i++) {
+//         slip_encode_and_append(((uint8_t*)&(state[1]))[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+//     }
+
+    for (i=0; i<sizeof(uint32_t); i++) {
+        slip_encode_and_append(((uint8_t*)&tnow_us)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
     }
 
-//     for (i=0; i<sizeof(uint32_t); i++) {
-//         slip_encode_and_append(((uint8_t*)&tnow_us)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&dt)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&dt)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
     for (i=0; i<sizeof(float); i++) {
         slip_encode_and_append(((uint8_t*)&elec_theta_m)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&omega_e)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&i_alpha_m)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&i_beta_m)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&u_alpha)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-//
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&u_beta)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
+
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&omega_e)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&i_alpha_m)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&i_beta_m)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&u_alpha)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
+    for (i=0; i<sizeof(float); i++) {
+        slip_encode_and_append(((uint8_t*)&u_beta)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
 
     slip_msg[slip_msg_len++] = SLIP_END;
 
-    serial_send_dma(slip_msg_len, (char*)slip_msg);
+//     serial_send_dma(slip_msg_len, (char*)slip_msg);
 }
 
 void motor_init(void)
@@ -405,12 +344,14 @@ void motor_init(void)
     retrieve_encoder_measurement();
     prev_mech_theta_m = mech_theta_m;
     mech_omega_est = 0.0f;
+
+    pwm_set_phase_duty_callback(calc_phase_duties);
 }
 
 void motor_update_state(float dt, struct adc_sample_s* adc_sample)
 {
-    process_adc_measurements(adc_sample);
     retrieve_encoder_measurement();
+    process_adc_measurements(adc_sample);
     update_estimates(dt);
 }
 
@@ -423,10 +364,8 @@ void motor_run_commutation(float dt)
     id_pid_param.i_meas = id_meas;
     iq_pid_param.i_meas = iq_meas;
 
-    float a, b, c;
     switch (motor_mode) {
         case MOTOR_MODE_DISABLED:
-            pwm_set_phase_duty(0.0f, 0.0f, 0.0f);
             break;
 
         case MOTOR_MODE_FOC_CURRENT:
@@ -435,24 +374,17 @@ void motor_run_commutation(float dt)
             curr_pid_run(&id_pid_param, &id_pid_state);
 
             // limit iq such that
-            iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0.0f));
+            iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0));
             curr_pid_run(&iq_pid_param, &iq_pid_state);
 
-            transform_d_q_to_alpha_beta(id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
+            transform_d_q_to_alpha_beta(elec_theta_est, id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
 
-            svgen(u_alpha/vbatt_m, u_beta/vbatt_m, &a, &b, &c);
-
-            if (!reverse) {
-                pwm_set_phase_duty(a, b, c);
-            } else {
-                pwm_set_phase_duty(a, c, b);
-            }
+            set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
             break;
 
         case MOTOR_MODE_ENCODER_CALIBRATION: {
             float t = (micros() - encoder_calibration_state.start_time_us)*1.0e-6f;
             float theta = 0.0f;
-            float v = constrain_float(calibration_voltage/vbatt_m, 0.0f, max_duty);
 
             switch(encoder_calibration_state.step) {
                 case 0:
@@ -486,30 +418,27 @@ void motor_run_commutation(float dt)
                     elec_theta_bias = wrap_pi(elec_theta_bias - atan2f(iq_meas, id_meas));
 
                     motor_set_mode(MOTOR_MODE_DISABLED);
-//                     semihost_debug_printf("mot_n_poles %u\n", mot_n_poles);
+                    semihost_debug_printf("mot_n_poles %u rev %u\n", mot_n_poles, reverse);
                     break;
             }
 
-            u_alpha = v * cosf(theta) / sqrtf(2);
-            u_beta = v * sinf(theta) / sqrtf(2);
+            float v = constrain_float(calibration_voltage, 0.0f, max_duty*vbatt_m);
+            u_alpha = v * cosf(theta);
+            u_beta = v * sinf(theta);
 
-            svgen(u_alpha, u_beta, &a, &b, &c);
-
-            pwm_set_phase_duty(a, b, c);
+            set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, 0);
 
             break;
         }
 
         case MOTOR_MODE_PHASE_VOLTAGE_TEST: {
             float theta = wrap_2pi(millis()*1e-3f);
-            float v = constrain_float(calibration_voltage/vbatt_m, 0.0f, max_duty);
 
-            u_alpha = v * cosf(theta) / sqrtf(2);
-            u_beta = v * sinf(theta) / sqrtf(2);
+            float v = constrain_float(calibration_voltage, 0.0f, max_duty*vbatt_m);
+            u_alpha = v * cosf(theta);
+            u_beta = v * sinf(theta);
 
-            svgen(u_alpha, u_beta, &a, &b, &c);
-
-            pwm_set_phase_duty(a, b, c);
+            set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, 0);
             break;
         }
     }
@@ -523,7 +452,6 @@ void motor_set_mode(enum motor_mode_t new_mode)
 
     if (new_mode == MOTOR_MODE_DISABLED) {
         drv_6_pwm_mode();
-        pwm_set_phase_duty(0.0f, 0.0f, 0.0f);
     } else {
         drv_3_pwm_mode();
     }
@@ -585,13 +513,8 @@ static void process_adc_measurements(struct adc_sample_s* adc_sample)
     // Retrieve current sense amplifier measurement
     csa_meas_t_us = adc_sample->t_us;
     ia_m = (adc_sample->csa_v[0]-csa_cal[0])/(csa_G*csa_R);
-    if (!reverse) {
-        ib_m = (adc_sample->csa_v[1]-csa_cal[1])/(csa_G*csa_R);
-        ic_m = (adc_sample->csa_v[2]-csa_cal[2])/(csa_G*csa_R);
-    } else {
-        ib_m = (adc_sample->csa_v[2]-csa_cal[2])/(csa_G*csa_R);
-        ic_m = (adc_sample->csa_v[1]-csa_cal[1])/(csa_G*csa_R);
-    }
+    ib_m = (adc_sample->csa_v[1]-csa_cal[1])/(csa_G*csa_R);
+    ic_m = (adc_sample->csa_v[2]-csa_cal[2])/(csa_G*csa_R);
 
     // Reconstruct current measurement
     float duty_a, duty_b, duty_c;
@@ -623,7 +546,15 @@ static void update_estimates(float dt)
 
     ekf_update(dt);
 
-    transform_alpha_beta_to_d_q(i_alpha_m, i_beta_m, &id_meas, &iq_meas);
+    if (ekf_running) {
+        elec_theta_est = state[1];
+        elec_omega_est = state[0] * mot_n_poles;
+    } else {
+        elec_theta_est = elec_theta_m;
+        elec_omega_est = mech_omega_est * mot_n_poles;
+    }
+
+    transform_alpha_beta_to_d_q(elec_theta_est, i_alpha_m, i_beta_m, &id_meas, &iq_meas);
 }
 
 static void load_pid_configs(void)
@@ -639,47 +570,70 @@ static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alph
     *beta = 0.707106781186547f*b - 0.707106781186547f*c;
 }
 
-static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta)
+static void transform_d_q_to_alpha_beta_fast(float theta, float d, float q, float* alpha, float* beta)
 {
-    float theta;
-    if (ekf_running) {
-        theta = state[1];
-    } else {
-        theta = elec_theta_m;
-    }
+    float sin_theta = theta;
+    float cos_theta = 1.0f-0.5f*SQ(theta);
+    *alpha = d*cos_theta - q*sin_theta;
+    *beta = d*sin_theta + q*cos_theta;
+}
+
+static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta)
+{
     *alpha = d*cosf(theta) - q*sinf(theta);
     *beta = d*sinf(theta) + q*cosf(theta);
 }
 
-static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q)
+static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q)
 {
-    float theta;
-    if (ekf_running) {
-        theta = state[1];
-    } else {
-        theta = elec_theta_m;
-    }
     *d = alpha*cosf(theta) + beta*sinf(theta);
     *q = -alpha*sinf(theta) + beta*cosf(theta);
 }
 
-static void svgen(float alpha, float beta, float* Va, float* Vb, float* Vc)
+static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega)
 {
+    uint8_t next_phase_output_idx = (phase_output_idx+1)%2;
+    phase_output[next_phase_output_idx].t_us = csa_meas_t_us;
+    phase_output[next_phase_output_idx].omega = omega;
+    phase_output[next_phase_output_idx].duty_alpha = duty_alpha;
+    phase_output[next_phase_output_idx].duty_beta = duty_beta;
+    phase_output_idx = next_phase_output_idx;
+}
+
+static volatile float delta_theta;
+static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
+{
+    if (motor_mode == MOTOR_MODE_DISABLED) {
+        (*phaseA) = 0;
+        (*phaseB) = 0;
+        (*phaseC) = 0;
+        return;
+    }
+
+    uint32_t tnow_us = micros();
+
+    float alpha, beta;
+    alpha = phase_output[phase_output_idx].duty_alpha;
+    beta = phase_output[phase_output_idx].duty_beta;
+//     delta_theta = (tnow_us-phase_output[phase_output_idx].t_us)*1e-6f * phase_output[phase_output_idx].omega;
+//     transform_d_q_to_alpha_beta_fast(delta_theta, phase_output[phase_output_idx].duty_alpha, phase_output[phase_output_idx].duty_beta, &alpha, &beta);
+
+    // Space-vector generator
     // Per http://www.embedded.com/design/real-world-applications/4441150/2/Painless-MCU-implementation-of-space-vector-modulation-for-electric-motor-systems
     float Vneutral;
     // Does not overmodulate, provided the input magnitude is <= max_duty/sqrt(2)
 
-    (*Va) = alpha * sqrtf(2.0f/3.0f);
-    (*Vb) = (-(alpha/2.0f)+(beta*sqrtf(3.0f)/2.0f)) * sqrtf(2.0f/3.0f);
-    (*Vc) = (-(alpha/2.0f)-(beta*sqrtf(3.0f)/2.0f)) * sqrtf(2.0f/3.0f);
+    (*phaseA) = alpha * sqrtf(2.0f/3.0f);
+    (*phaseB) = (-(alpha/2.0f)+(beta*sqrtf(3.0f)/2.0f)) * sqrtf(2.0f/3.0f);
+    (*phaseC) = (-(alpha/2.0f)-(beta*sqrtf(3.0f)/2.0f)) * sqrtf(2.0f/3.0f);
 
-    Vneutral = 0.5f * (MAX(MAX((*Va),(*Vb)),(*Vc)) + MIN(MIN((*Va),(*Vb)),(*Vc)));
+    Vneutral = 0.5f * (MAX(MAX((*phaseA),(*phaseB)),(*phaseC)) + MIN(MIN((*phaseA),(*phaseB)),(*phaseC)));
 
-    (*Va) += 0.5f*max_duty-Vneutral;
-    (*Vb) += 0.5f*max_duty-Vneutral;
-    (*Vc) += 0.5f*max_duty-Vneutral;
+    (*phaseA) += 0.5f*max_duty-Vneutral;
+    (*phaseB) += 0.5f*max_duty-Vneutral;
+    (*phaseC) += 0.5f*max_duty-Vneutral;
 
-    (*Va) = constrain_float(*Va, 0.0f, max_duty);
-    (*Vb) = constrain_float(*Vb, 0.0f, max_duty);
-    (*Vc) = constrain_float(*Vc, 0.0f, max_duty);
+    (*phaseA) = constrain_float(*phaseA, 0.0f, max_duty);
+    (*phaseB) = constrain_float(*phaseB, 0.0f, max_duty);
+    (*phaseC) = constrain_float(*phaseC, 0.0f, max_duty);
 }
