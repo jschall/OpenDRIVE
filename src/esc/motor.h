@@ -38,3 +38,4 @@ float motor_get_elec_rotor_angle(void);
 float motor_get_vbatt(void);
 float motor_get_iq_est(void);
 void motor_print_data(float dt);
+void motor_update_ekf(float dt);

@@ -23,60 +23,40 @@
 #include <esc/semihost_debug.h>
 #include <esc/drv.h>
 
+static uint32_t tbegin_us;
+static bool waiting_to_start = false;
+static bool started = false;
+static float t_max = 5.0f;
+static const float f0 = 100.0f;
+static const float f1 = 2000.0f;
+
 void program_init(void) {
     // Calibrate the encoder
     motor_set_mode(MOTOR_MODE_ENCODER_CALIBRATION);
+    tbegin_us = micros();
 }
-
-static uint32_t tbegin_us;
-static bool started = false;
-static float t_max = 3.0f;
-static const float f0 = 100.0f;
-static const float f1 = 2000.0f;
 
 void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
     uint32_t tnow = micros();
     float t = (tnow-tbegin_us)*1.0e-6f;
 
-    motor_update_state(dt, adc_sample);
-
-    motor_set_iq_ref(1.0f);
-
-//     float beta = t_max / logf(f1/f0);
-//     float phi = 2*M_PI_F*beta*f0*(powf(f1/f0, t/t_max)-1.0f);
-//
-//
-    if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
-//         semihost_debug_printf("%f\n", motor_get_phys_rotor_ang_vel());
-        motor_set_mode(MOTOR_MODE_DISABLED);
-    }
-//     if (started && t < t_max) {
-//         motor_set_iq_ref(3.0f*sin(phi));
-//     } else {
-//         motor_set_iq_ref(0);
-//     }
-
-    if (motor_get_mode() == MOTOR_MODE_DISABLED && !started) {
-        motor_set_mode(MOTOR_MODE_FOC_CURRENT);
-        started = true;
+    if (motor_get_mode() == MOTOR_MODE_DISABLED && !waiting_to_start && !started) {
+        waiting_to_start = true;
         tbegin_us = micros();
-    }
+    } else if (waiting_to_start && !started && t > 0.1f) {
+        tbegin_us = micros();
+        started = true;
+        motor_set_mode(MOTOR_MODE_FOC_CURRENT);
+    } /*else if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
+        motor_set_mode(MOTOR_MODE_DISABLED);
+    }*/
 
-//     if (motor_get_mode() == MOTOR_MODE_FOC_CURRENT) {
-//         uint8_t i;
-//         samples[sample_count] = motor_get_iq_est();
-//         sample_count++;
-//         if (sample_count == 40) {
-//             motor_set_mode(MOTOR_MODE_DISABLED);
-//             for (i=0; i<40; i++) {
-//                 semihost_debug_printf("%d %d\n", (int32_t)i, (int32_t)(samples[i]*1000));
-//             }
-//         }
-//     }
-
+    motor_set_iq_ref(3.0f);
+    motor_update_state(dt, adc_sample);
     motor_run_commutation(dt);
+    motor_update_ekf(dt);
 
-    if (started && motor_get_mode() != MOTOR_MODE_DISABLED && !drv_get_fault()) {
-        motor_print_data(dt);
-    }
+//     if (started && motor_get_mode() != MOTOR_MODE_DISABLED && !drv_get_fault()) {
+//         motor_print_data(dt);
+//     }
 }

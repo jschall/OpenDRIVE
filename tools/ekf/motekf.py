@@ -56,15 +56,14 @@ R_ab_dq = lambda theta: Matrix([[ cos(theta), sin(theta)],
 R_dq_ab = lambda theta: R_ab_dq(theta).T
 
 # f: state-transtition model
-
-next_theta_e = theta_e_est + dt*omega_e_est
-u_dq = R_ab_dq(next_theta_e) * u_ab
+#next_theta_e = theta_e_est + dt*omega_e_est
+u_dq = R_ab_dq(theta_e_est) * u_ab
 u_d = u_dq[0]
 u_q = u_dq[1]
 
 f = Matrix([
     [omega_r_est + dt*(i_q_est*K_t/J - T_l_est/J)],
-    [next_theta_e],
+    [theta_e_est + dt*omega_e_est],
     [i_d_est + dt*(u_d/L - i_d_est*R_s/L + i_q_est*omega_e_est)],
     [i_q_est + dt*(u_q/L - i_q_est*R_s/L - i_d_est*omega_e_est - omega_e_est*lambda_r/L)],
     [T_l_est]])
@@ -115,7 +114,7 @@ P_n = upperTriangularToVec(P_n)
 
 def print_code():
     global x_n, P_n
-    x_n,P_n,subx = extractSubexpressions([x_p,P_p],'subx',threshold=1)
+    x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=1)
 
     init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2))
 
@@ -137,8 +136,8 @@ def test_ekf():
     import numpy as np
     data = loadmat('mot_data.mat')
 
-    PREDICTION_ONLY = False
-    TRUTH_ANGLE_OVERRIDE = False
+    PREDICTION_ONLY = True
+    TRUTH_ANGLE_OVERRIDE = True
 
     if PREDICTION_ONLY:
         print "PREDICTION_ONLY"
@@ -150,8 +149,8 @@ def test_ekf():
         P_n = P_p
 
     subs = {
-        R_s:0.102,
-        L:100.0*1e-6,
+        R_s:0.152,
+        L:80.0*1e-6,
         K_v:360.,
         J:0.00003,
         N_P:7,
@@ -199,10 +198,13 @@ def test_ekf():
             plot_data[name] = []
         plot_data[name].append(val)
 
-    data['u_alpha'][0] = np.roll(data['u_alpha'][0],1)
-    data['u_beta'][0] = np.roll(data['u_beta'][0],1)
-    data['u_alpha'][0][0] = data['u_beta'][0][0] = 0
-    data['u_alpha'][0][1] = data['u_beta'][0][1] = 0
+    #data['u_alpha'][0] = np.roll(data['u_alpha'][0],1)
+    #data['u_beta'][0] = np.roll(data['u_beta'][0],1)
+    #data['u_alpha'][0][0] = data['u_beta'][0][0] = 0
+    #data['u_alpha'][0][1] = data['u_beta'][0][1] = 0
+
+    #print data['u_alpha'][0][0]
+    #print data['u_beta'][0][0]
 
     n_samples = len(data['dt'][0])
     n_process = n_samples
@@ -210,6 +212,7 @@ def test_ekf():
     for i in range(n_process):
         try:
             t = (data['t_us'][0][i]-data['t_us'][0][0])*1e-6
+            data['t_us'][0][i]
             sys.stdout.write('\r%fs %u%%' % (t,int(round(100*float(i)/n_process))))
             sys.stdout.flush()
             theta_e_truth = data['theta_e'][0][i]
