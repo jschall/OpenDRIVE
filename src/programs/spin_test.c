@@ -47,7 +47,7 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
 //
 //
     if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
-        semihost_debug_printf("%f\n", motor_get_phys_rotor_ang_vel());
+//         semihost_debug_printf("%f\n", motor_get_phys_rotor_ang_vel());
         motor_set_mode(MOTOR_MODE_DISABLED);
     }
 //     if (started && t < t_max) {
@@ -76,7 +76,7 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
 
     motor_run_commutation(dt);
 
-    if (started && !drv_get_fault()) {
+    if (started && motor_get_mode() != MOTOR_MODE_DISABLED && !drv_get_fault()) {
         motor_print_data(dt);
     }
 }

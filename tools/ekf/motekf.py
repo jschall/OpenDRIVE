@@ -115,10 +115,9 @@ P_n = upperTriangularToVec(P_n)
 
 def print_code():
     global x_n, P_n
-    x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=1)
-    init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2))
+    x_n,P_n,subx = extractSubexpressions([x_p,P_p],'subx',threshold=1)
 
-    print count_ops(x_n)+count_ops(P_n)+count_ops(subx)
+    init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2))
 
     for i in range(len(init_P)):
         print 'cov[%u] = %s;' % (i, CCodePrinter_float().doprint(init_P[i]))
@@ -188,7 +187,7 @@ def test_ekf():
 
     init_P = upperTriangularToVec(diag(10.**2, (math.pi/6)**2, 0.01**2, 0.01**2, 0.1**2))
 
-    curr_x = np.array([0.,data['theta_e'][0][0]+math.pi, 0., 0., 0.])
+    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0.])
     curr_P = np.array(init_P.T)
     curr_subx = np.zeros(len(subx_lambda))
 

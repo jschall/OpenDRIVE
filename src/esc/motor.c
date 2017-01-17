@@ -279,10 +279,6 @@ void motor_print_data(float dt) {
     uint32_t tnow_us = micros();
     float omega_e = mech_omega_est*mot_n_poles;
 
-//     for (i=0; i<sizeof(float); i++) {
-//         slip_encode_and_append(((uint8_t*)&(state[1]))[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
-//     }
-
     for (i=0; i<sizeof(uint32_t); i++) {
         slip_encode_and_append(((uint8_t*)&tnow_us)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
     }
@@ -317,7 +313,7 @@ void motor_print_data(float dt) {
 
     slip_msg[slip_msg_len++] = SLIP_END;
 
-//     serial_send_dma(slip_msg_len, (char*)slip_msg);
+    serial_send_dma(slip_msg_len, (char*)slip_msg);
 }
 
 void motor_init(void)
@@ -418,7 +414,7 @@ void motor_run_commutation(float dt)
                     elec_theta_bias = wrap_pi(elec_theta_bias - atan2f(iq_meas, id_meas));
 
                     motor_set_mode(MOTOR_MODE_DISABLED);
-                    semihost_debug_printf("mot_n_poles %u rev %u\n", mot_n_poles, reverse);
+//                     semihost_debug_printf("mot_n_poles %u rev %u\n", mot_n_poles, reverse);
                     break;
             }
 
@@ -620,8 +616,8 @@ static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
 
     // Space-vector generator
     // Per http://www.embedded.com/design/real-world-applications/4441150/2/Painless-MCU-implementation-of-space-vector-modulation-for-electric-motor-systems
-    float Vneutral;
     // Does not overmodulate, provided the input magnitude is <= max_duty/sqrt(2)
+    float Vneutral;
 
     (*phaseA) = alpha * sqrtf(2.0f/3.0f);
     (*phaseB) = (-(alpha/2.0f)+(beta*sqrtf(3.0f)/2.0f)) * sqrtf(2.0f/3.0f);
