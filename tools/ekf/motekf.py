@@ -114,14 +114,14 @@ P_n = upperTriangularToVec(P_n)
 
 def print_code():
     global x_n, P_n
-    subs = [
-        (sin(theta_e_est), Symbol('ekf_sin_theta')),
-        (cos(theta_e_est), Symbol('ekf_cos_theta')),
-        (sin(theta_e_est+dt*omega_e_est), Symbol('next_ekf_sin_theta')),
-        (cos(theta_e_est+dt*omega_e_est), Symbol('next_ekf_cos_theta'))
-        ]
-    x_n = x_n.subs(subs)
-    P_n = P_n.subs(subs)
+    #subs = [
+        #(sin(theta_e_est), Symbol('ekf_sin_theta')),
+        #(cos(theta_e_est), Symbol('ekf_cos_theta')),
+        #(sin(theta_e_est+dt*omega_e_est), Symbol('next_ekf_sin_theta')),
+        #(cos(theta_e_est+dt*omega_e_est), Symbol('next_ekf_cos_theta'))
+        #]
+    #x_n = x_n.subs(subs)
+    #P_n = P_n.subs(subs)
 
 
     x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=5)

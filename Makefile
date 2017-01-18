@@ -31,6 +31,7 @@ build/%.bin: build/%.elf
 build/src/%.o: src/%.c $(LIBOPENCM3_DIR)
 	@echo "### BUILDING $@"
 	@mkdir -p "$(dir $@)"
+	@arm-none-eabi-gcc $(CFLAGS) $(ARCH_FLAGS) -S $< -o $(patsubst %.o,%.S,$@)
 	@arm-none-eabi-gcc $(CFLAGS) $(ARCH_FLAGS) -c $< -o $@
 
 build/canard.o: $(LIBCANARD_DIR)/canard.c
