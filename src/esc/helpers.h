@@ -26,6 +26,8 @@
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
+float sinf_fast(float x);
+float cosf_fast(float x);
 float constrain_float(float val, float min_val, float max_val);
 float wrap_2pi(float val);
 float wrap_pi(float val);

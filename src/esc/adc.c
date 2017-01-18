@@ -142,7 +142,7 @@ void adc1_2_isr(void)
     }
 }
 
-static void write_sample_buffer(uint16_t* in_buf)
+static void write_sample_buffer(volatile uint16_t* in_buf)
 {
     uint8_t i;
     uint8_t write_idx = (sample_idx+1)&1U;

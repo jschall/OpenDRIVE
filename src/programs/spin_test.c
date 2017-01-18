@@ -27,9 +27,7 @@
 static uint32_t tbegin_us;
 static bool waiting_to_start = false;
 static bool started = false;
-static float t_max = 5.0f;
-static const float f0 = 100.0f;
-static const float f1 = 2000.0f;
+// static float t_max = 5.0f;
 
 void program_init(void) {
     // Calibrate the encoder

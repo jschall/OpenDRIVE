@@ -52,8 +52,6 @@ static float mech_theta_m = 0.0f; // mechanical rotor angle
 static float prev_mech_theta_m = 0.0f; // previous mechanical rotor angle for differentiation
 static float elec_theta_m = 0.0f; // electrical rotor angle
 static float elec_theta_est = 0.0f;
-static float sin_elec_theta_est = 0.0f;
-static float cos_elec_theta_est = 1.0f;
 static float elec_omega_est = 0.0f;
 static float mech_omega_est = 0.0f; // mechanical rotor angular velocity
 static enum motor_mode_t motor_mode = MOTOR_MODE_DISABLED;
@@ -84,8 +82,8 @@ static void retrieve_encoder_measurement(void);
 static void update_estimates(float dt);
 static void load_pid_configs(void);
 static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alpha, float* beta);
-static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta);
-static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q);
+static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta);
+static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q);
 static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega);
 static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC);
 
@@ -151,15 +149,15 @@ void motor_update_ekf(float dt)
     subx[0] = 1.0/M_PI;
     subx[1] = 1.0/K_v;
     subx[2] = 1.0/L;
-    subx[3] = cosf(state[1]);
-    subx[4] = sinf(state[1]);
+    subx[3] = cosf_fast(state[1]);
+    subx[4] = sinf_fast(state[1]);
     subx[5] = dt*(N_P*state[0]*state[3] - R_s*state[2]*subx[2] + subx[2]*(subx[3]*u_alpha + subx[4]*u_beta)) + state[2];
     subx[6] = N_P*dt;
     subx[7] = state[0]*subx[6];
-    subx[8] = cosf(state[1] + subx[7]);
+    subx[8] = cosf_fast(state[1] + subx[7]);
     subx[9] = subx[3]*u_beta - subx[4]*u_alpha;
     subx[10] = dt*(-N_P*state[0]*state[2] - R_s*state[3]*subx[2] - 20.0*state[0]*subx[0]*subx[1]*subx[2] + subx[2]*subx[9]) + state[3];
-    subx[11] = sinf(state[1] + subx[7]);
+    subx[11] = sinf_fast(state[1] + subx[7]);
     subx[12] = -subx[10]*subx[11] + subx[5]*subx[8];
     subx[13] = cov[4]*subx[6] + cov[8];
     subx[14] = dt/J;
@@ -366,7 +364,7 @@ void motor_run_commutation(float dt)
             iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0));
             curr_pid_run(&iq_pid_param, &iq_pid_state);
 
-            transform_d_q_to_alpha_beta(id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
+            transform_d_q_to_alpha_beta(elec_theta_est, id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
 
             set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
             break;
@@ -411,9 +409,12 @@ void motor_run_commutation(float dt)
                     break;
             }
 
+            float sin_theta = sinf_fast(theta);
+            float cos_theta = cosf_fast(theta);
+
             float v = constrain_float(calibration_voltage, 0.0f, vbatt_m);
-            u_alpha = v * cosf(theta);
-            u_beta = v * sinf(theta);
+            u_alpha = v * cos_theta;
+            u_beta = v * sin_theta;
 
             set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, 0);
 
@@ -422,10 +423,12 @@ void motor_run_commutation(float dt)
 
         case MOTOR_MODE_PHASE_VOLTAGE_TEST: {
             float theta = wrap_2pi(millis()*1e-3f);
+            float sin_theta = sinf_fast(theta);
+            float cos_theta = cosf_fast(theta);
 
             float v = constrain_float(calibration_voltage, 0.0f, vbatt_m);
-            u_alpha = v * cosf(theta);
-            u_beta = v * sinf(theta);
+            u_alpha = v * cos_theta;
+            u_beta = v * sin_theta;
 
             set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, 0);
             break;
@@ -527,8 +530,6 @@ static void retrieve_encoder_measurement(void)
 
 static void update_estimates(float dt)
 {
-    float* state = ekf_state[ekf_idx];
-    float* cov = ekf_cov[ekf_idx];
     const float tc = 0.0f;
     const float alpha = dt/(dt+tc);
     mech_omega_est += (wrap_pi(mech_theta_m-prev_mech_theta_m)/dt - mech_omega_est) * alpha;
@@ -536,20 +537,16 @@ static void update_estimates(float dt)
 
     transform_a_b_c_to_alpha_beta(ia_m, ib_m, ic_m, &i_alpha_m, &i_beta_m);
 
-    elec_omega_est = state[0] * mot_n_poles;
-    elec_theta_est = state[1] + elec_omega_est*dt;
-
-    sin_elec_theta_est = sinf(elec_theta_est);
-    cos_elec_theta_est = cosf(elec_theta_est);
-
-    if (!ekf_running) {
+    if (ekf_running) {
+        float* state = ekf_state[ekf_idx];
+        elec_omega_est = state[0] * mot_n_poles;
+        elec_theta_est = state[1] + elec_omega_est*dt;
+    } else {
         elec_theta_est = elec_theta_m;
         elec_omega_est = mech_omega_est * mot_n_poles;
-        sin_elec_theta_est = sinf(elec_theta_est);
-        cos_elec_theta_est = cosf(elec_theta_est);
     }
 
-    transform_alpha_beta_to_d_q(i_alpha_m, i_beta_m, &id_meas, &iq_meas);
+    transform_alpha_beta_to_d_q(elec_theta_est, i_alpha_m, i_beta_m, &id_meas, &iq_meas);
 }
 
 static void load_pid_configs(void)
@@ -565,24 +562,22 @@ static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alph
     *beta = 0.707106781186547f*b - 0.707106781186547f*c;
 }
 
-static void transform_d_q_to_alpha_beta_fast(float theta, float d, float q, float* alpha, float* beta)
+static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta)
 {
-    float sin_theta = theta;
-    float cos_theta = 1.0f-0.5f*SQ(theta);
+    float sin_theta = sinf_fast(theta);
+    float cos_theta = cosf_fast(theta);
+
     *alpha = d*cos_theta - q*sin_theta;
     *beta = d*sin_theta + q*cos_theta;
 }
 
-static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta)
+static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q)
 {
-    *alpha = d*cos_elec_theta_est - q*sin_elec_theta_est;
-    *beta = d*sin_elec_theta_est + q*cos_elec_theta_est;
-}
+    float sin_theta = sinf_fast(theta);
+    float cos_theta = cosf_fast(theta);
 
-static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q)
-{
-    *d = alpha*cos_elec_theta_est + beta*sin_elec_theta_est;
-    *q = -alpha*sin_elec_theta_est + beta*cos_elec_theta_est;
+    *d = alpha*cos_theta + beta*sin_theta;
+    *q = -alpha*sin_theta + beta*cos_theta;
 }
 
 static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega)
@@ -610,7 +605,7 @@ static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
     float delta_theta = dt * phase_output[phase_output_idx].omega;
 
     float alpha, beta;
-    transform_d_q_to_alpha_beta_fast(delta_theta, phase_output[phase_output_idx].duty_alpha, phase_output[phase_output_idx].duty_beta, &alpha, &beta);
+    transform_d_q_to_alpha_beta(delta_theta, phase_output[phase_output_idx].duty_alpha, phase_output[phase_output_idx].duty_beta, &alpha, &beta);
 
     // Space-vector generator
     // Per http://www.embedded.com/design/real-world-applications/4441150/2/Painless-MCU-implementation-of-space-vector-modulation-for-electric-motor-systems
