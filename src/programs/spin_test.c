@@ -22,11 +22,12 @@
 #include <esc/timing.h>
 #include <esc/semihost_debug.h>
 #include <esc/drv.h>
+#include <esc/serial.h>
 
 static uint32_t tbegin_us;
 static bool waiting_to_start = false;
 static bool started = false;
-static float t_max = 5.0f;
+static float t_max = 0.5f;
 static const float f0 = 100.0f;
 static const float f1 = 2000.0f;
 
@@ -47,11 +48,11 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
         tbegin_us = micros();
         started = true;
         motor_set_mode(MOTOR_MODE_FOC_CURRENT);
-    } /*else if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
+    }/* else if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
         motor_set_mode(MOTOR_MODE_DISABLED);
     }*/
 
-    motor_set_iq_ref(3.0f);
+    motor_set_iq_ref(5.0f);
     motor_update_state(dt, adc_sample);
     motor_run_commutation(dt);
     motor_update_ekf(dt);

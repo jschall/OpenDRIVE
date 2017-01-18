@@ -55,6 +55,8 @@ static float mech_theta_m = 0.0f; // mechanical rotor angle
 static float prev_mech_theta_m = 0.0f; // previous mechanical rotor angle for differentiation
 static float elec_theta_m = 0.0f; // electrical rotor angle
 static float elec_theta_est = 0.0f;
+static float sin_elec_theta_est = 0.0f;
+static float cos_elec_theta_est = 1.0f;
 static float elec_omega_est = 0.0f;
 static float mech_omega_est = 0.0f; // mechanical rotor angular velocity
 static enum motor_mode_t motor_mode = MOTOR_MODE_DISABLED;
@@ -85,27 +87,32 @@ static void retrieve_encoder_measurement(void);
 static void update_estimates(float dt);
 static void load_pid_configs(void);
 static void transform_a_b_c_to_alpha_beta(float a, float b, float c, float* alpha, float* beta);
-static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta);
-static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q);
+static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta);
+static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q);
 static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega);
 static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC);
 
 static bool ekf_running = false;
-static float state[5];
-static float cov[15];
+static uint8_t ekf_idx = 0;
+static float ekf_state[2][5];
+static float ekf_cov[2][15];
+static float ekf_sin_theta, ekf_cos_theta, next_ekf_sin_theta, next_ekf_cos_theta;
 
 // EKF parameters
-static const float R_s = 0.152f;
-static const float L = 80*1e-6f;
-static const float K_v = 360.0f;
+static const float R_s = 0.102f;
+static const float L = 60*1e-6f;
+static const float K_v = 362.0f;
 static const float J = 0.00003f;
 static const float N_P = 7.0f;
-static const float i_noise = 0.01f;
-static const float u_noise = 0.7f;
+static const float i_noise = 0.02f;
+static const float u_noise = 1.0f;
 static const float T_l_pnoise = 0.1f;
 
 static void ekf_init(float theta)
 {
+    float* state = ekf_state[ekf_idx];
+    float* cov = ekf_cov[ekf_idx];
+
     ekf_running = true;
     state[0] = 0.0f; // omega
     state[1] = theta;
@@ -131,153 +138,120 @@ static void ekf_init(float theta)
     cov[12] = ((i_noise)*(i_noise));
     cov[13] = 0;
     cov[14] = 0.0100000000000000;
+
+    ekf_sin_theta = sinf(theta);
+    ekf_cos_theta = cosf(theta);
 }
 
 void motor_update_ekf(float dt)
 {
     float u_alpha = phase_output[(phase_output_idx+1)%2].duty_alpha * vbatt_m;
     float u_beta = phase_output[(phase_output_idx+1)%2].duty_beta * vbatt_m;
-    static float subx[112];
-    static float state_n[5];
-    static float cov_n[15];
+    uint8_t next_ekf_idx = (ekf_idx+1)%2;
+    float* state = ekf_state[ekf_idx];
+    float* cov = ekf_cov[ekf_idx];
+    float* state_n = ekf_state[next_ekf_idx];
+    float* cov_n = ekf_cov[next_ekf_idx];
 
-    subx[0] = 1.0/J;
-    subx[1] = 1.0/M_PI;
-    subx[2] = 1.0/K_v;
-    subx[3] = 30.0*subx[1]*subx[2];
-    subx[4] = 1.0/L;
-    subx[5] = cosf(state[1]);
-    subx[6] = subx[5]*u_alpha;
-    subx[7] = sinf(state[1]);
-    subx[8] = subx[7]*u_beta;
-    subx[9] = R_s*subx[4];
-    subx[10] = dt*(N_P*state[0]*state[3] - state[2]*subx[9] + subx[4]*(subx[6] + subx[8])) + state[2];
-    subx[11] = N_P*dt;
-    subx[12] = state[0]*subx[11];
-    subx[13] = state[1] + subx[12];
-    subx[14] = cosf(subx[13]);
-    subx[15] = subx[10]*subx[14];
-    subx[16] = subx[5]*u_beta - subx[7]*u_alpha;
-    subx[17] = subx[16]*subx[4];
-    subx[18] = N_P*state[2];
-    subx[19] = 20.0*subx[1]*subx[2]*subx[4];
-    subx[20] = dt*(-state[0]*subx[18] - state[0]*subx[19] - state[3]*subx[9] + subx[17]) + state[3];
-    subx[21] = sinf(subx[13]);
-    subx[22] = subx[20]*subx[21];
-    subx[23] = subx[15] - subx[22];
-    subx[24] = cov[4]*subx[11];
-    subx[25] = cov[8] + subx[24];
-    subx[26] = dt*subx[0];
-    subx[27] = cov[3]*subx[11];
-    subx[28] = 30.0*dt*subx[0]*subx[1]*subx[2];
-    subx[29] = cov[0]*subx[11];
-    subx[30] = cov[1] + subx[29];
-    subx[31] = -subx[25]*subx[26] + subx[28]*(cov[7] + subx[27]) + subx[30];
-    subx[32] = -dt*subx[9] + 1;
-    subx[33] = dt*subx[16]*subx[4];
-    subx[34] = cov[11]*subx[32] + cov[13]*subx[12] + cov[8]*subx[33] + state[3]*subx[24];
-    subx[35] = cov[10]*subx[32];
-    subx[36] = cov[12]*subx[12] + cov[7]*subx[33] + state[3]*subx[27] + subx[35];
-    subx[37] = cov[1]*dt;
-    subx[38] = cov[2]*subx[32] + cov[3]*subx[12] + state[3]*subx[29] + subx[17]*subx[37];
-    subx[39] = -subx[26]*subx[34] + subx[28]*subx[36] + subx[38];
-    subx[40] = dt*(-subx[18] - subx[19]);
-    subx[41] = -subx[6] - subx[8];
-    subx[42] = dt*subx[41]*subx[4];
-    subx[43] = -cov[11]*subx[12] + cov[13]*subx[32] + cov[4]*subx[40] + cov[8]*subx[42];
-    subx[44] = cov[10]*subx[12];
-    subx[45] = cov[12]*subx[32] + cov[3]*subx[40] + cov[7]*subx[42] - subx[44];
-    subx[46] = subx[41]*subx[4];
-    subx[47] = cov[0]*subx[40] - cov[2]*subx[12] + cov[3]*subx[32] + subx[37]*subx[46];
-    subx[48] = -subx[26]*subx[43] + subx[28]*subx[45] + subx[47];
-    subx[49] = subx[14]*subx[48] + subx[21]*subx[39] + subx[23]*subx[31];
-    subx[50] = -subx[10]*subx[21] - subx[14]*subx[20];
-    subx[51] = cov[1]*subx[11];
-    subx[52] = cov[5] + subx[11]*subx[30] + subx[51];
-    subx[53] = subx[11]*subx[38];
-    subx[54] = cov[5]*subx[33] + cov[6]*subx[32] + cov[7]*subx[12] + state[3]*subx[51];
-    subx[55] = subx[53] + subx[54];
-    subx[56] = subx[11]*subx[47];
-    subx[57] = cov[1]*subx[40] + cov[5]*subx[42] - cov[6]*subx[12] + cov[7]*subx[32];
-    subx[58] = subx[56] + subx[57];
-    subx[59] = subx[14]*subx[58] + subx[21]*subx[55] + subx[23]*subx[52];
-    subx[60] = cov[2]*subx[40] + cov[6]*subx[42] - cov[9]*subx[12] + subx[35];
-    subx[61] = dt*subx[57];
-    subx[62] = state[3]*subx[56] + subx[12]*subx[45] + subx[17]*subx[61] + subx[32]*subx[60];
-    subx[63] = subx[14]*subx[62];
-    subx[64] = ((dt)*(dt))*((u_noise)*(u_noise))/((L)*(L));
-    subx[65] = ((subx[5])*(subx[5]))*subx[64] + subx[64]*((subx[7])*(subx[7]));
-    subx[66] = state[3]*subx[53] + subx[12]*subx[36] + subx[32]*(cov[2]*state[3]*subx[11] + cov[6]*subx[33] + cov[9]*subx[32] + subx[44]) + subx[33]*subx[54] + subx[65];
-    subx[67] = subx[21]*subx[66] + subx[23]*subx[55] + subx[63];
-    subx[68] = subx[21]*subx[62];
-    subx[69] = -subx[12]*subx[60] + subx[32]*subx[45] + subx[40]*subx[47] + subx[46]*subx[61] + subx[65];
-    subx[70] = subx[14]*subx[69] + subx[23]*subx[58] + subx[68];
-    subx[71] = subx[14]*subx[67] - subx[21]*subx[70] + subx[50]*subx[59];
-    subx[72] = ((i_noise)*(i_noise));
-    subx[73] = subx[14]*subx[70] + subx[21]*subx[67] + subx[23]*subx[59] + subx[72];
-    subx[74] = subx[14]*subx[55] - subx[21]*subx[58] + subx[50]*subx[52];
-    subx[75] = subx[14]*subx[66] + subx[50]*subx[55] - subx[68];
-    subx[76] = -subx[21]*subx[69] + subx[50]*subx[58] + subx[63];
-    subx[77] = subx[14]*subx[75] - subx[21]*subx[76] + subx[50]*subx[74] + subx[72];
-    subx[78] = 1.0/(-((subx[71])*(subx[71])) + subx[73]*subx[77]);
-    subx[79] = subx[77]*subx[78];
-    subx[80] = subx[14]*subx[39] - subx[21]*subx[48] + subx[31]*subx[50];
-    subx[81] = subx[71]*subx[78];
-    subx[82] = subx[49]*subx[79] - subx[80]*subx[81];
-    subx[83] = i_beta_m + subx[50];
-    subx[84] = subx[73]*subx[78];
-    subx[85] = -subx[49]*subx[81] + subx[80]*subx[84];
-    subx[86] = i_alpha_m - subx[15] + subx[22];
-    subx[87] = subx[59]*subx[79] - subx[74]*subx[81];
-    subx[88] = -subx[59]*subx[81] + subx[74]*subx[84];
-    subx[89] = subx[75]*subx[78];
-    subx[90] = subx[67]*subx[79] - subx[71]*subx[89];
-    subx[91] = -subx[67]*subx[81] + subx[73]*subx[89];
-    subx[92] = subx[70]*subx[79] - subx[76]*subx[81];
-    subx[93] = -subx[70]*subx[81] + subx[76]*subx[84];
-    subx[94] = subx[14]*subx[43] + subx[21]*subx[34] + subx[23]*subx[25];
-    subx[95] = subx[14]*subx[34] - subx[21]*subx[43] + subx[25]*subx[50];
-    subx[96] = subx[79]*subx[94] - subx[81]*subx[95];
-    subx[97] = -subx[81]*subx[94] + subx[84]*subx[95];
-    subx[98] = -subx[14]*subx[82] + subx[21]*subx[85];
-    subx[99] = -subx[23]*subx[82] - subx[50]*subx[85];
-    subx[100] = -subx[14]*subx[85] - subx[21]*subx[82];
-    subx[101] = cov[13]*subx[26];
-    subx[102] = -cov[14]*subx[26] + cov[4] + subx[101]*subx[3];
-    subx[103] = -subx[14]*subx[87] + subx[21]*subx[88];
-    subx[104] = -subx[14]*subx[88] - subx[21]*subx[87];
-    subx[105] = -subx[23]*subx[87] - subx[50]*subx[88] + 1;
-    subx[106] = -subx[14]*subx[90] + subx[21]*subx[91];
-    subx[107] = -subx[23]*subx[90] - subx[50]*subx[91];
-    subx[108] = -subx[14]*subx[91] - subx[21]*subx[90] + 1;
-    subx[109] = -subx[23]*subx[92] - subx[50]*subx[93];
-    subx[110] = -subx[14]*subx[93] - subx[21]*subx[92];
-    subx[111] = -subx[14]*subx[92] + subx[21]*subx[93] + 1;
-    state_n[0] = dt*(state[3]*subx[0]*subx[3] - state[4]*subx[0]) + state[0] + subx[82]*subx[83] + subx[85]*subx[86];
-    state_n[1] = subx[13] + subx[83]*subx[87] + subx[86]*subx[88];
-    state_n[2] = subx[10] + subx[83]*subx[90] + subx[86]*subx[91];
-    state_n[3] = subx[20] + subx[83]*subx[92] + subx[86]*subx[93];
-    state_n[4] = state[4] + subx[83]*subx[96] + subx[86]*subx[97];
-    cov_n[0] = cov[0] + cov[3]*subx[28] - cov[4]*subx[26] + subx[100]*subx[39] - subx[102]*subx[26] + subx[28]*(cov[12]*subx[28] + cov[3] - subx[101]) + subx[31]*subx[99] + subx[48]*subx[98];
-    cov_n[1] = subx[100]*subx[55] + subx[31] + subx[52]*subx[99] + subx[58]*subx[98];
-    cov_n[2] = subx[100]*subx[66] + subx[39] + subx[55]*subx[99] + subx[62]*subx[98];
-    cov_n[3] = subx[100]*subx[62] + subx[48] + subx[58]*subx[99] + subx[69]*subx[98];
-    cov_n[4] = subx[100]*subx[34] + subx[102] + subx[25]*subx[99] + subx[43]*subx[98];
-    cov_n[5] = subx[103]*subx[58] + subx[104]*subx[55] + subx[105]*subx[52];
-    cov_n[6] = subx[103]*subx[62] + subx[104]*subx[66] + subx[105]*subx[55];
-    cov_n[7] = subx[103]*subx[69] + subx[104]*subx[62] + subx[105]*subx[58];
-    cov_n[8] = subx[103]*subx[43] + subx[104]*subx[34] + subx[105]*subx[25];
-    cov_n[9] = subx[106]*subx[62] + subx[107]*subx[55] + subx[108]*subx[66];
-    cov_n[10] = subx[106]*subx[69] + subx[107]*subx[58] + subx[108]*subx[62];
-    cov_n[11] = subx[106]*subx[43] + subx[107]*subx[25] + subx[108]*subx[34];
-    cov_n[12] = subx[109]*subx[58] + subx[110]*subx[62] + subx[111]*subx[69];
-    cov_n[13] = subx[109]*subx[25] + subx[110]*subx[34] + subx[111]*subx[43];
-    cov_n[14] = ((T_l_pnoise)*(T_l_pnoise)) + cov[14] + subx[25]*(-subx[23]*subx[96] - subx[50]*subx[97]) + subx[34]*(-subx[14]*subx[97] - subx[21]*subx[96]) + subx[43]*(-subx[14]*subx[96] + subx[21]*subx[97]);
+    static float subx[71];
+
+    subx[0] = 1.0/M_PI;
+    subx[1] = 1.0/K_v;
+    subx[2] = 1.0/L;
+    subx[3] = -R_s*dt*subx[2] + 1;
+    subx[4] = N_P*dt;
+    subx[5] = state[0]*subx[4];
+    subx[6] = dt*subx[2]*(ekf_cos_theta*u_beta - ekf_sin_theta*u_alpha);
+    subx[7] = cov[11]*subx[3] + cov[13]*subx[5] + cov[4]*state[3]*subx[4] + cov[8]*subx[6];
+    subx[8] = dt/J;
+    subx[9] = cov[10]*subx[3] + cov[12]*subx[5] + cov[3]*state[3]*subx[4] + cov[7]*subx[6];
+    subx[10] = 30.0*dt*subx[0]*subx[1]/J;
+    subx[11] = cov[0]*state[3]*subx[4] + cov[1]*subx[6] + cov[2]*subx[3] + cov[3]*subx[5];
+    subx[12] = subx[10]*subx[9] + subx[11] - subx[7]*subx[8];
+    subx[13] = dt*(-N_P*state[0]*state[2] - R_s*state[3]*subx[2] - 20.0*state[0]*subx[0]*subx[1]*subx[2] + subx[2]*(ekf_cos_theta*u_beta - ekf_sin_theta*u_alpha)) + state[3];
+    subx[14] = dt*(N_P*state[0]*state[3] - R_s*state[2]*subx[2] + subx[2]*(ekf_cos_theta*u_alpha + ekf_sin_theta*u_beta)) + state[2];
+    subx[15] = -next_ekf_cos_theta*subx[13] - next_ekf_sin_theta*subx[14];
+    subx[16] = cov[4]*subx[4] + cov[8];
+    subx[17] = cov[0]*subx[4] + cov[1] + subx[10]*(cov[3]*subx[4] + cov[7]) - subx[16]*subx[8];
+    subx[18] = dt*(-N_P*state[2] - 20.0*subx[0]*subx[1]*subx[2]);
+    subx[19] = dt*subx[2]*(-ekf_cos_theta*u_alpha - ekf_sin_theta*u_beta);
+    subx[20] = -cov[11]*subx[5] + cov[13]*subx[3] + cov[4]*subx[18] + cov[8]*subx[19];
+    subx[21] = -cov[10]*subx[5] + cov[12]*subx[3] + cov[3]*subx[18] + cov[7]*subx[19];
+    subx[22] = cov[0]*subx[18] + cov[1]*subx[19] - cov[2]*subx[5] + cov[3]*subx[3];
+    subx[23] = subx[10]*subx[21] - subx[20]*subx[8] + subx[22];
+    subx[24] = next_ekf_cos_theta*subx[12] - next_ekf_sin_theta*subx[23] + subx[15]*subx[17];
+    subx[25] = cov[10]*subx[3] + cov[2]*subx[18] + cov[6]*subx[19] - cov[9]*subx[5];
+    subx[26] = cov[1]*subx[18] + cov[5]*subx[19] - cov[6]*subx[5] + cov[7]*subx[3];
+    subx[27] = state[3]*subx[22]*subx[4] + subx[21]*subx[5] + subx[25]*subx[3] + subx[26]*subx[6];
+    subx[28] = cov[1]*state[3]*subx[4] + cov[5]*subx[6] + cov[6]*subx[3] + cov[7]*subx[5];
+    subx[29] = ((dt)*(dt))*((u_noise)*(u_noise))/((L)*(L));
+    subx[30] = ((ekf_cos_theta)*(ekf_cos_theta))*subx[29] + ((ekf_sin_theta)*(ekf_sin_theta))*subx[29];
+    subx[31] = state[3]*subx[11]*subx[4] + subx[28]*subx[6] + subx[30] + subx[3]*(cov[10]*subx[5] + cov[2]*state[3]*subx[4] + cov[6]*subx[6] + cov[9]*subx[3]) + subx[5]*subx[9];
+    subx[32] = next_ekf_cos_theta*subx[14] - next_ekf_sin_theta*subx[13];
+    subx[33] = subx[11]*subx[4] + subx[28];
+    subx[34] = next_ekf_cos_theta*subx[27] + next_ekf_sin_theta*subx[31] + subx[32]*subx[33];
+    subx[35] = subx[22]*subx[4] + subx[26];
+    subx[36] = cov[1]*subx[4] + cov[5] + subx[4]*(cov[0]*subx[4] + cov[1]);
+    subx[37] = next_ekf_cos_theta*subx[35] + next_ekf_sin_theta*subx[33] + subx[32]*subx[36];
+    subx[38] = subx[18]*subx[22] + subx[19]*subx[26] + subx[21]*subx[3] - subx[25]*subx[5] + subx[30];
+    subx[39] = next_ekf_cos_theta*subx[38] + next_ekf_sin_theta*subx[27] + subx[32]*subx[35];
+    subx[40] = next_ekf_cos_theta*subx[34] - next_ekf_sin_theta*subx[39] + subx[15]*subx[37];
+    subx[41] = ((i_noise)*(i_noise)) + next_ekf_cos_theta*subx[39] + next_ekf_sin_theta*subx[34] + subx[32]*subx[37];
+    subx[42] = next_ekf_cos_theta*subx[31] - next_ekf_sin_theta*subx[27] + subx[15]*subx[33];
+    subx[43] = next_ekf_cos_theta*subx[33] - next_ekf_sin_theta*subx[35] + subx[15]*subx[36];
+    subx[44] = next_ekf_cos_theta*subx[27] - next_ekf_sin_theta*subx[38] + subx[15]*subx[35];
+    subx[45] = ((i_noise)*(i_noise)) + next_ekf_cos_theta*subx[42] - next_ekf_sin_theta*subx[44] + subx[15]*subx[43];
+    subx[46] = 1.0/(-((subx[40])*(subx[40])) + subx[41]*subx[45]);
+    subx[47] = next_ekf_cos_theta*subx[23] + next_ekf_sin_theta*subx[12] + subx[17]*subx[32];
+    subx[48] = subx[40]*subx[46];
+    subx[49] = subx[24]*subx[41]*subx[46] - subx[47]*subx[48];
+    subx[50] = i_alpha_m - next_ekf_cos_theta*subx[14] + next_ekf_sin_theta*subx[13];
+    subx[51] = -subx[24]*subx[48] + subx[45]*subx[46]*subx[47];
+    subx[52] = -subx[37]*subx[48] + subx[41]*subx[43]*subx[46];
+    subx[53] = subx[37]*subx[45]*subx[46] - subx[43]*subx[48];
+    subx[54] = subx[34]*subx[45]*subx[46] - subx[42]*subx[48];
+    subx[55] = -subx[34]*subx[48] + subx[41]*subx[42]*subx[46];
+    subx[56] = -subx[39]*subx[48] + subx[41]*subx[44]*subx[46];
+    subx[57] = subx[39]*subx[45]*subx[46] - subx[44]*subx[48];
+    subx[58] = next_ekf_cos_theta*subx[7] - next_ekf_sin_theta*subx[20] + subx[15]*subx[16];
+    subx[59] = next_ekf_cos_theta*subx[20] + next_ekf_sin_theta*subx[7] + subx[16]*subx[32];
+    subx[60] = subx[41]*subx[46]*subx[58] - subx[48]*subx[59];
+    subx[61] = subx[45]*subx[46]*subx[59] - subx[48]*subx[58];
+    subx[62] = -next_ekf_cos_theta*subx[51] + next_ekf_sin_theta*subx[49];
+    subx[63] = -next_ekf_cos_theta*subx[49] - next_ekf_sin_theta*subx[51];
+    subx[64] = -subx[15]*subx[49] - subx[32]*subx[51];
+    subx[65] = -next_ekf_cos_theta*subx[53] + next_ekf_sin_theta*subx[52];
+    subx[66] = -next_ekf_cos_theta*subx[52] - next_ekf_sin_theta*subx[53];
+    subx[67] = -subx[15]*subx[52] - subx[32]*subx[53] + 1;
+    subx[68] = -next_ekf_cos_theta*subx[54] + next_ekf_sin_theta*subx[55];
+    subx[69] = -subx[15]*subx[55] - subx[32]*subx[54];
+    subx[70] = -next_ekf_cos_theta*subx[55] - next_ekf_sin_theta*subx[54] + 1;
+    state_n[0] = dt*(30.0*state[3]*subx[0]*subx[1]/J - state[4]/J) + state[0] + subx[49]*subx[50] + subx[51]*(i_beta_m + subx[15]);
+    state_n[1] = state[1] + subx[50]*subx[52] + subx[53]*(i_beta_m + subx[15]) + subx[5];
+    state_n[2] = subx[14] + subx[50]*subx[55] + subx[54]*(i_beta_m + subx[15]);
+    state_n[3] = subx[13] + subx[50]*subx[56] + subx[57]*(i_beta_m + subx[15]);
+    state_n[4] = state[4] + subx[50]*subx[60] + subx[61]*(i_beta_m + subx[15]);
+    cov_n[0] = cov[0] + cov[3]*subx[10] - cov[4]*subx[8] + subx[10]*(cov[12]*subx[10] - cov[13]*subx[8] + cov[3]) + subx[12]*subx[63] + subx[17]*subx[64] + subx[23]*subx[62] - subx[8]*(30.0*cov[13]*subx[0]*subx[1]*subx[8] - cov[14]*subx[8] + cov[4]);
+    cov_n[1] = subx[17] + subx[33]*subx[63] + subx[35]*subx[62] + subx[36]*subx[64];
+    cov_n[2] = subx[12] + subx[27]*subx[62] + subx[31]*subx[63] + subx[33]*subx[64];
+    cov_n[3] = subx[23] + subx[27]*subx[63] + subx[35]*subx[64] + subx[38]*subx[62];
+    cov_n[4] = 30.0*cov[13]*subx[0]*subx[1]*subx[8] - cov[14]*subx[8] + cov[4] + subx[16]*subx[64] + subx[20]*subx[62] + subx[63]*subx[7];
+    cov_n[5] = subx[33]*subx[66] + subx[35]*subx[65] + subx[36]*subx[67];
+    cov_n[6] = subx[27]*subx[65] + subx[31]*subx[66] + subx[33]*subx[67];
+    cov_n[7] = subx[27]*subx[66] + subx[35]*subx[67] + subx[38]*subx[65];
+    cov_n[8] = subx[16]*subx[67] + subx[20]*subx[65] + subx[66]*subx[7];
+    cov_n[9] = subx[27]*subx[68] + subx[31]*subx[70] + subx[33]*subx[69];
+    cov_n[10] = subx[27]*subx[70] + subx[35]*subx[69] + subx[38]*subx[68];
+    cov_n[11] = subx[16]*subx[69] + subx[20]*subx[68] + subx[70]*subx[7];
+    cov_n[12] = subx[27]*(-next_ekf_cos_theta*subx[56] - next_ekf_sin_theta*subx[57]) + subx[35]*(-subx[15]*subx[56] - subx[32]*subx[57]) + subx[38]*(-next_ekf_cos_theta*subx[57] + next_ekf_sin_theta*subx[56] + 1);
+    cov_n[13] = subx[16]*(-subx[15]*subx[56] - subx[32]*subx[57]) + subx[20]*(-next_ekf_cos_theta*subx[57] + next_ekf_sin_theta*subx[56] + 1) + subx[7]*(-next_ekf_cos_theta*subx[56] - next_ekf_sin_theta*subx[57]);
+    cov_n[14] = ((T_l_pnoise)*(T_l_pnoise)) + cov[14] + subx[16]*(-subx[15]*subx[60] - subx[32]*subx[61]) + subx[20]*(-next_ekf_cos_theta*subx[61] + next_ekf_sin_theta*subx[60]) + subx[7]*(-next_ekf_cos_theta*subx[60] - next_ekf_sin_theta*subx[61]);
 
     state_n[1] = wrap_2pi(state_n[1]);
 
-    memcpy(state, state_n, sizeof(state));
-    memcpy(cov, cov_n, sizeof(cov));
+    ekf_sin_theta = next_ekf_sin_theta;
+    ekf_cos_theta = next_ekf_cos_theta;
+    ekf_idx = next_ekf_idx;
 }
 
 void motor_print_data(float dt) {
@@ -286,6 +260,7 @@ void motor_print_data(float dt) {
     uint8_t i;
     uint32_t tnow_us = micros();
     float omega_e = mech_omega_est*mot_n_poles;
+    uint32_t adc_errcnt = adc_get_errcnt();
 
     float prev_u_alpha = phase_output[(phase_output_idx+1)%2].duty_alpha * vbatt_m;
     float prev_u_beta = phase_output[(phase_output_idx+1)%2].duty_beta * vbatt_m;
@@ -320,6 +295,10 @@ void motor_print_data(float dt) {
 
     for (i=0; i<sizeof(float); i++) {
         slip_encode_and_append(((uint8_t*)&prev_u_beta)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
+    }
+
+    for (i=0; i<sizeof(uint32_t); i++) {
+        slip_encode_and_append(((uint8_t*)&adc_errcnt)[i], &slip_msg_len, slip_msg, sizeof(slip_msg));
     }
 
     slip_msg[slip_msg_len++] = SLIP_END;
@@ -386,7 +365,7 @@ void motor_run_commutation(float dt)
             iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0));
             curr_pid_run(&iq_pid_param, &iq_pid_state);
 
-            transform_d_q_to_alpha_beta(elec_theta_est, id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
+            transform_d_q_to_alpha_beta(id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
 
             set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
             break;
@@ -548,6 +527,8 @@ static void retrieve_encoder_measurement(void)
 
 static void update_estimates(float dt)
 {
+    float* state = ekf_state[ekf_idx];
+    float* cov = ekf_cov[ekf_idx];
     const float tc = 0.0f;
     const float alpha = dt/(dt+tc);
     mech_omega_est += (wrap_pi(mech_theta_m-prev_mech_theta_m)/dt - mech_omega_est) * alpha;
@@ -555,15 +536,20 @@ static void update_estimates(float dt)
 
     transform_a_b_c_to_alpha_beta(ia_m, ib_m, ic_m, &i_alpha_m, &i_beta_m);
 
-    if (ekf_running) {
-        elec_omega_est = state[0] * mot_n_poles;
-        elec_theta_est = state[1] + elec_omega_est*dt;
-    } else {
+    elec_omega_est = state[0] * mot_n_poles;
+    elec_theta_est = state[1] + elec_omega_est*dt;
+
+    sin_elec_theta_est = next_ekf_sin_theta = sinf(elec_theta_est);;
+    cos_elec_theta_est = next_ekf_cos_theta = cosf(elec_theta_est);;
+
+    if (!ekf_running) {
         elec_theta_est = elec_theta_m;
         elec_omega_est = mech_omega_est * mot_n_poles;
+        sin_elec_theta_est = sinf(elec_theta_est);
+        cos_elec_theta_est = cosf(elec_theta_est);
     }
 
-    transform_alpha_beta_to_d_q(elec_theta_est, i_alpha_m, i_beta_m, &id_meas, &iq_meas);
+    transform_alpha_beta_to_d_q(i_alpha_m, i_beta_m, &id_meas, &iq_meas);
 }
 
 static void load_pid_configs(void)
@@ -587,16 +573,16 @@ static void transform_d_q_to_alpha_beta_fast(float theta, float d, float q, floa
     *beta = d*sin_theta + q*cos_theta;
 }
 
-static void transform_d_q_to_alpha_beta(float theta, float d, float q, float* alpha, float* beta)
+static void transform_d_q_to_alpha_beta(float d, float q, float* alpha, float* beta)
 {
-    *alpha = d*cosf(theta) - q*sinf(theta);
-    *beta = d*sinf(theta) + q*cosf(theta);
+    *alpha = d*cos_elec_theta_est - q*sin_elec_theta_est;
+    *beta = d*sin_elec_theta_est + q*cos_elec_theta_est;
 }
 
-static void transform_alpha_beta_to_d_q(float theta, float alpha, float beta, float* d, float* q)
+static void transform_alpha_beta_to_d_q(float alpha, float beta, float* d, float* q)
 {
-    *d = alpha*cosf(theta) + beta*sinf(theta);
-    *q = -alpha*sinf(theta) + beta*cosf(theta);
+    *d = alpha*cos_elec_theta_est + beta*sin_elec_theta_est;
+    *q = -alpha*sin_elec_theta_est + beta*cos_elec_theta_est;
 }
 
 static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float omega)

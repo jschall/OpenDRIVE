@@ -30,9 +30,12 @@ def slip_decode(in_buf):
 
 buf = ''
 
-struct_fmt = '<Ifffffff'
+struct_fmt = '<IfffffffI'
 
-data = {'t_us':[],'dt':[],'theta_e':[], 'omega_e':[], 'i_alpha':[],'i_beta':[],'u_alpha':[],'u_beta':[],'R':0.11,'L':80*1e-6,'Kt':0.02652582384,'J':0.00006}
+data = {'t_us':[],'dt':[],'theta_e':[], 'omega_e':[], 'i_alpha':[],'i_beta':[],'u_alpha':[],'u_beta':[], 'adc_errcnt':[],'R':0.11,'L':80*1e-6,'Kt':0.02652582384,'J':0.00006}
+
+t0 = None
+us_accum = 0
 
 with open(sys.argv[1], 'rb') as csvfile:
     reader = csv.reader(csvfile, delimiter=',')
@@ -41,7 +44,15 @@ with open(sys.argv[1], 'rb') as csvfile:
         buf += row[2][2:].decode('hex')
         frame, buf = slip_decode(buf)
         if frame is not None:
-            frame_data = dict(zip(('t_us','dt','theta_e', 'omega_e', 'i_alpha','i_beta','u_alpha','u_beta'),struct.unpack(struct_fmt,frame)))
+            frame_data = dict(zip(('t_us','dt','theta_e', 'omega_e', 'i_alpha','i_beta','u_alpha','u_beta','adc_errcnt'),struct.unpack(struct_fmt,frame)))
+            if t0 is None:
+                t0 = frame_data['t_us']
+            else:
+                us_accum += int(round(frame_data['dt']*1e6))
+
+            print int(round(frame_data['dt']*1e6))
+            #print (us_accum - (frame_data['t_us']-t0))/(1e6/(18000/3))
+
             #frame_data['u_alpha'] *= 1./sqrt(3)
             #frame_data['u_beta'] *= 1./sqrt(3)
 

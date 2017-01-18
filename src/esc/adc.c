@@ -28,7 +28,7 @@
 #define SAMPLE_PERIOD (1.0f/SAMPLE_FREQ)
 #define NUM_CONVERSIONS 6UL
 
-static volatile uint16_t adcbuf[NUM_CONVERSIONS];
+static volatile uint16_t adcbuf[2][NUM_CONVERSIONS];
 static volatile uint32_t errcnt = 0;
 static volatile uint8_t sample_idx = 0;
 static volatile struct adc_sample_s sample[2];
@@ -106,13 +106,14 @@ void adc_init(void)
     // set up DMA
     DMA_CPAR(DMA1,DMA_CHANNEL1) = (uint32_t)&ADC_DR(ADC1);
     DMA_CMAR(DMA1,DMA_CHANNEL1) = (uint32_t)&(adcbuf[0]);
-    DMA_CNDTR(DMA1,DMA_CHANNEL1) = NUM_CONVERSIONS; // N transfers
+    DMA_CNDTR(DMA1,DMA_CHANNEL1) = NUM_CONVERSIONS*2; // N transfers
 
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 0b11UL<<12; // PL very high
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 0b01UL<<10; // MSIZE 16 bits
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 0b10UL<<8; // PSIZE 32 bits
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 1UL<<7; // MINC=1
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 1UL<<5; // CIRC=1
+    DMA_CCR(DMA1,DMA_CHANNEL1) |= 1UL<<2; // HTIE=1
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 1UL<<1; // TCIE=1
     DMA_CCR(DMA1,DMA_CHANNEL1) |= 1UL<<0; // EN=1
     nvic_enable_irq(NVIC_DMA1_CHANNEL1_IRQ);
@@ -141,24 +142,33 @@ void adc1_2_isr(void)
     }
 }
 
-void dma1_channel1_isr(void)
+static void write_sample_buffer(uint16_t* in_buf)
 {
     uint8_t i;
+    uint8_t write_idx = (sample_idx+1)&1U;
+
+    sample[write_idx].seq = sample[sample_idx].seq+1;
+    sample[write_idx].t_us = micros();
+    sample[write_idx].csa_v[0] = in_buf[3]*3.3f/4096.0f;
+    sample[write_idx].csa_v[1] = in_buf[4]*3.3f/4096.0f;
+    sample[write_idx].csa_v[2] = in_buf[5]*3.3f/4096.0f;
+    sample[write_idx].vsense_v = 0.0f;
+    for (i=0; i<3; i++) sample[write_idx].vsense_v += in_buf[i];
+    sample[write_idx].vsense_v *= 3.3f/4096.0f/3.0f;
+
+    sample_idx = write_idx;
+}
+
+void dma1_channel1_isr(void)
+{
+    if ((DMA_ISR(DMA1)&(1UL<<2)) != 0) {
+        // HTIF1 is asserted
+        write_sample_buffer(adcbuf[0]);
+        DMA_IFCR(DMA1) |= 1UL<<2; // clear interrupt flag
+    }
     if ((DMA_ISR(DMA1)&(1UL<<1)) != 0) {
         // TCIF1 is asserted
-        uint8_t write_idx = (sample_idx+1)&1U;
-
-        sample[write_idx].seq = sample[sample_idx].seq+1;
-        sample[write_idx].t_us = micros();
-        sample[write_idx].csa_v[0] = adcbuf[3]*3.3f/4096.0f;
-        sample[write_idx].csa_v[1] = adcbuf[4]*3.3f/4096.0f;
-        sample[write_idx].csa_v[2] = adcbuf[5]*3.3f/4096.0f;
-        sample[write_idx].vsense_v = 0.0f;
-        for (i=0; i<3; i++) sample[write_idx].vsense_v += adcbuf[i];
-        sample[write_idx].vsense_v *= 3.3f/4096.0f/3.0f;
-
-        sample_idx = write_idx;
-
+        write_sample_buffer(adcbuf[1]);
         DMA_IFCR(DMA1) |= 1UL<<1; // clear interrupt flag
     }
 }

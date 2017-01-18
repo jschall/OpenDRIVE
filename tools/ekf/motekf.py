@@ -114,7 +114,17 @@ P_n = upperTriangularToVec(P_n)
 
 def print_code():
     global x_n, P_n
-    x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=1)
+    subs = [
+        (sin(theta_e_est), Symbol('ekf_sin_theta')),
+        (cos(theta_e_est), Symbol('ekf_cos_theta')),
+        (sin(theta_e_est+dt*omega_e_est), Symbol('next_ekf_sin_theta')),
+        (cos(theta_e_est+dt*omega_e_est), Symbol('next_ekf_cos_theta'))
+        ]
+    x_n = x_n.subs(subs)
+    P_n = P_n.subs(subs)
+
+
+    x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=5)
 
     init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2))
 
@@ -137,7 +147,7 @@ def test_ekf():
     data = loadmat('mot_data.mat')
 
     PREDICTION_ONLY = True
-    TRUTH_ANGLE_OVERRIDE = True
+    TRUTH_ANGLE_OVERRIDE = False
 
     if PREDICTION_ONLY:
         print "PREDICTION_ONLY"
@@ -149,15 +159,14 @@ def test_ekf():
         P_n = P_p
 
     subs = {
-        R_s:0.152,
-        L:80.0*1e-6,
-        K_v:360.,
+        R_s:0.102,
+        L:55.0*1e-6,
+        K_v:362.,
         J:0.00003,
         N_P:7,
         i_noise: 0.01,
-        u_noise: 0.7,
+        u_noise: 1.,
         T_l_pnoise: 0.1,
-        dt: 1./6000.
         }
 
     x_n = x_n.xreplace(subs).xreplace(subs)
@@ -248,6 +257,7 @@ def test_ekf():
             i_q_mu = next_x[3][0]
             i_q_sigma = float(next_P_uncompressed[3,3]**0.5)
 
+            u_dq_truth = R_ab_dq(theta_e_truth) * Matrix([u_alpha, u_beta])
             i_dq_truth = (R_ab_dq(theta_e_truth) * Matrix([i_alpha_m, i_beta_m]))
 
             add_plot_data('t', t)
@@ -289,6 +299,9 @@ def test_ekf():
             add_plot_data('theta_e_err', wrap_pi(theta_e_mu-theta_e_truth))
 
             add_plot_data('NIS',obs_NIS)
+
+            add_plot_data('u_d/R', u_dq_truth[0]/.102)
+            add_plot_data('u_q/R', u_dq_truth[1]/.102)
 
 
             curr_x = next_x
@@ -342,7 +355,12 @@ def test_ekf():
     plt.title('electrical rotor angular velocity error vs sensor')
     plt.plot(plot_data['t'], plot_data['omega_e_err'])
     plt.subplot(5,2,8)
+    plt.plot(plot_data['t'], plot_data['u_d/R'])
+    plt.plot(plot_data['t'], plot_data['i_d_truth'], color='g')
+    plt.subplot(5,2,10)
+    plt.plot(plot_data['t'], plot_data['u_q/R'])
+    plt.plot(plot_data['t'], plot_data['i_q_truth'], color='g')
     plt.show()
 
-#print_code()
-test_ekf()
+print_code()
+#test_ekf()
