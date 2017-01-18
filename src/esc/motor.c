@@ -40,9 +40,6 @@ static const float curr_KI = 350.0f;
 static const float vsense_div = 20.0f;
 static const float csa_G = 10.0f;
 static const float csa_R = 0.001f;
-// it takes approximately 50 timer clock cycles to sample the current sensors. PWM period is 2000 timer clock cycles
-// TODO reconstruct current measurement to allow max_duty=1.0
-static const float max_duty = 1.0f;
 static const float calibration_voltage = 2.0f;
 
 static uint32_t csa_meas_t_us = 0;
@@ -62,8 +59,8 @@ static float mech_omega_est = 0.0f; // mechanical rotor angular velocity
 static enum motor_mode_t motor_mode = MOTOR_MODE_DISABLED;
 
 // double-buffered phase output
-static uint8_t phase_output_idx = 0;
-static struct {
+static volatile uint8_t phase_output_idx = 0;
+static volatile struct {
     uint32_t t_us;
     float duty_alpha;
     float duty_beta;
@@ -356,9 +353,15 @@ void motor_run_commutation(float dt)
             set_alpha_beta_output_duty(0, 0, 0);
             break;
 
-        case MOTOR_MODE_FOC_CURRENT:
+        case MOTOR_MODE_FOC_CURRENT: {
+            bool overmodulation = true;
             id_pid_param.i_ref = 0.0f;
-            id_pid_param.output_limit = max_duty*vbatt_m / sqrtf(2);
+            id_pid_param.output_limit = 1.0f*vbatt_m;
+            if (overmodulation) {
+                id_pid_param.output_limit *= sqrtf(2.0f/3.0f);
+            } else {
+                id_pid_param.output_limit *= 1./sqrtf(2.0f);
+            }
             curr_pid_run(&id_pid_param, &id_pid_state);
 
             // limit iq such that
@@ -369,7 +372,7 @@ void motor_run_commutation(float dt)
 
             set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
             break;
-
+        }
         case MOTOR_MODE_ENCODER_CALIBRATION: {
             float t = (micros() - encoder_calibration_state.start_time_us)*1.0e-6f;
             float theta = 0.0f;
@@ -410,7 +413,7 @@ void motor_run_commutation(float dt)
                     break;
             }
 
-            float v = constrain_float(calibration_voltage, 0.0f, max_duty*vbatt_m);
+            float v = constrain_float(calibration_voltage, 0.0f, vbatt_m);
             u_alpha = v * cosf(theta);
             u_beta = v * sinf(theta);
 
@@ -422,7 +425,7 @@ void motor_run_commutation(float dt)
         case MOTOR_MODE_PHASE_VOLTAGE_TEST: {
             float theta = wrap_2pi(millis()*1e-3f);
 
-            float v = constrain_float(calibration_voltage, 0.0f, max_duty*vbatt_m);
+            float v = constrain_float(calibration_voltage, 0.0f, vbatt_m);
             u_alpha = v * cosf(theta);
             u_beta = v * sinf(theta);
 
@@ -458,7 +461,7 @@ void motor_set_mode(enum motor_mode_t new_mode)
     iq_pid_param.i_ref = 0.0f;
 
     if (new_mode == MOTOR_MODE_FOC_CURRENT) {
-         ekf_init(0);
+        ekf_init(0);
 //         semihost_debug_printf("%d %d\n", (int32_t)(100.0*180.0/M_PI_F * elec_theta_m), (int32_t)(100.0*180.0/M_PI_F * state[1]));
     }
 
@@ -539,8 +542,8 @@ static void update_estimates(float dt)
     elec_omega_est = state[0] * mot_n_poles;
     elec_theta_est = state[1] + elec_omega_est*dt;
 
-    sin_elec_theta_est = next_ekf_sin_theta = sinf(elec_theta_est);;
-    cos_elec_theta_est = next_ekf_cos_theta = cosf(elec_theta_est);;
+    sin_elec_theta_est = next_ekf_sin_theta = sinf(elec_theta_est);
+    cos_elec_theta_est = next_ekf_cos_theta = cosf(elec_theta_est);
 
     if (!ekf_running) {
         elec_theta_est = elec_theta_m;
@@ -595,7 +598,6 @@ static void set_alpha_beta_output_duty(float duty_alpha, float duty_beta, float 
     phase_output_idx = next_phase_output_idx;
 }
 
-static volatile float delta_theta;
 static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
 {
     if (motor_mode == MOTOR_MODE_DISABLED) {
@@ -606,16 +608,16 @@ static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
     }
 
     uint32_t tnow_us = micros();
+    uint32_t dt_us = tnow_us-phase_output[phase_output_idx].t_us;
+    float dt = dt_us*1e-6f;
+    float delta_theta = dt * phase_output[phase_output_idx].omega;
 
     float alpha, beta;
-//     alpha = phase_output[phase_output_idx].duty_alpha;
-//     beta = phase_output[phase_output_idx].duty_beta;
-    delta_theta = (tnow_us-phase_output[phase_output_idx].t_us)*1e-6f * phase_output[phase_output_idx].omega;
     transform_d_q_to_alpha_beta_fast(delta_theta, phase_output[phase_output_idx].duty_alpha, phase_output[phase_output_idx].duty_beta, &alpha, &beta);
 
     // Space-vector generator
     // Per http://www.embedded.com/design/real-world-applications/4441150/2/Painless-MCU-implementation-of-space-vector-modulation-for-electric-motor-systems
-    // Does not overmodulate, provided the input magnitude is <= max_duty/sqrt(2)
+    // Does not overmodulate, provided the input magnitude is <= 1.0/sqrt(2)
     float Vneutral;
 
     (*phaseA) = alpha * sqrtf(2.0f/3.0f);
@@ -624,11 +626,11 @@ static void calc_phase_duties(float* phaseA, float* phaseB, float* phaseC)
 
     Vneutral = 0.5f * (MAX(MAX((*phaseA),(*phaseB)),(*phaseC)) + MIN(MIN((*phaseA),(*phaseB)),(*phaseC)));
 
-    (*phaseA) += 0.5f*max_duty-Vneutral;
-    (*phaseB) += 0.5f*max_duty-Vneutral;
-    (*phaseC) += 0.5f*max_duty-Vneutral;
+    (*phaseA) += 0.5f-Vneutral;
+    (*phaseB) += 0.5f-Vneutral;
+    (*phaseC) += 0.5f-Vneutral;
 
-    (*phaseA) = constrain_float(*phaseA, 0.0f, max_duty);
-    (*phaseB) = constrain_float(*phaseB, 0.0f, max_duty);
-    (*phaseC) = constrain_float(*phaseC, 0.0f, max_duty);
+    (*phaseA) = constrain_float(*phaseA, 0.0f, 1.0f);
+    (*phaseB) = constrain_float(*phaseB, 0.0f, 1.0f);
+    (*phaseC) = constrain_float(*phaseC, 0.0f, 1.0f);
 }
