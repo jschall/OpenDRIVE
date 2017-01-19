@@ -1,3 +1,7 @@
+#include <esc/uavcan.h>
+#include <esc/can.h>
+#include <esc/timing.h>
+#include <string.h>
 #include <canard.h>
 
 #define APP_VERSION_MAJOR                                           0
@@ -57,7 +61,7 @@ static void process1HzTasks()
                                            buffer, UAVCAN_NODE_STATUS_MESSAGE_SIZE);
         if (bc_res <= 0)
         {
-            semihost_debug_printf("Could not broadcast node status; error %d\n", bc_res);
+//             semihost_debug_printf("Could not broadcast node status; error %d\n", bc_res);
         }
     }
 
@@ -66,7 +70,7 @@ static void process1HzTasks()
 
 static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer) {}
 
-static void uavcan_init(void)
+void uavcan_init(void)
 {
     canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer);
     canardSetLocalNodeID(&canard, 65);
@@ -75,7 +79,7 @@ static void uavcan_init(void)
 
 static uint32_t last_1hz_ms;
 
-static void uavcan_update(void)
+void uavcan_update(void)
 {
     uint32_t tnow_ms = millis();
     if (tnow_ms-last_1hz_ms >= 1000) {

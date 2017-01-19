@@ -1,5 +1,4 @@
-#ifndef __SLIP_H
-#define __SLIP_H
+#pragma once
 
 #include <stdint.h>
 
@@ -16,5 +15,3 @@ uint8_t slip_encode_and_append(uint8_t byte, uint8_t* out_buf_len, uint8_t *out_
 // assumes sizeof(out_buf) >= (in_len - 1)
 // returns out_buf length or 0 on failure to find a valid frame
 uint8_t slip_decode(uint8_t in_len, uint8_t *in_buf, uint8_t *out_buf);
-
-#endif

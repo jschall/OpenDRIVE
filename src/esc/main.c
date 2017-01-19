@@ -30,6 +30,7 @@
 #include <esc/can.h>
 #include <esc/program.h>
 #include <esc/semihost_debug.h>
+#include <esc/uavcan.h>
 #include <stdio.h>
 
 int main(void)
@@ -40,6 +41,7 @@ int main(void)
     timing_init();
     serial_init();
     canbus_init();
+    uavcan_init();
     param_init();
     spi_init();
     drv_init();
@@ -58,6 +60,7 @@ int main(void)
         struct adc_sample_s adc_sample;
         uint8_t d_seq;
         do {
+            uavcan_update();
             encoder_read_angle();
             adc_get_sample(&adc_sample);
             d_seq = adc_sample.seq-prev_seq;

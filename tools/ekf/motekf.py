@@ -11,6 +11,8 @@ import sys
 #     http://www.nt.ntnu.no/users/skoge/prost/proceedings/cdc-ecc-2011/data/papers/1796.pdf
 # "Extended Kalman Filter Application in Permanent Magnet Synchronous Motor Sensorless Control," Qiu, 2003
 # "Extended Kalman Filter Based Speed Sensorless PMSM Control with Load Reconstruction," Janiszewski, 2010
+# "Dynamic Model of PM Synchronous Motors," Ohm, 2000
+#     http://www.drivetechinc.com/articles/IM97PM_Rev1forPDF.pdf
 
 # Parameters
 dt  = Symbol('dt')  # Time step

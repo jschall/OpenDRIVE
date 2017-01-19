@@ -46,7 +46,6 @@ void canbus_init(void) {
         false             /* Silent */
     );
 
-
     can_filter_id_mask_32bit_init(
         CAN1,  /* CAN register base address */
         0,     /* Filter ID */
