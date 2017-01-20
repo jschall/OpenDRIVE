@@ -28,6 +28,7 @@ build/%.bin: build/%.elf
 	@mkdir -p "$(dir $@)"
 	@arm-none-eabi-objcopy -O binary $< $@
 
+.PRECIOUS: build/src/%.o
 build/src/%.o: src/%.c $(LIBOPENCM3_DIR)
 	@echo "### BUILDING $@"
 	@mkdir -p "$(dir $@)"
@@ -42,13 +43,15 @@ build/canard.o: $(LIBCANARD_DIR)/canard.c
 .PHONY: $(LIBOPENCM3_DIR)
 $(LIBOPENCM3_DIR):
 	@echo "### BUILDING $@"
-	echo "$(PROGS)"
 	@$(MAKE) -C $(LIBOPENCM3_DIR)
 
-.PHONY: upload
+.PHONY: %-upload
 %-upload: build/bin/%.elf
 	@echo "### UPLOADING"
 	@openocd -f openocd.cfg -c "program $< verify reset exit"
+
+.PHONY: %
+%: build/bin/%.elf ;
 
 .PHONY: clean
 clean:

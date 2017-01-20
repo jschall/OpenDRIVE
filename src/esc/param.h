@@ -18,14 +18,18 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+// NOTE: once a parameter is added to this enum, it can never be removed
 enum param_key_t {
     PARAM_ESC_MOT_KV=0,
     PARAM_ESC_MOT_POLES,
     PARAM_ESC_MOT_R,
     PARAM_ESC_FOC_P,
     PARAM_ESC_FOC_I,
-    PARAM_ESC_ENC_PBIAS,
+    PARAM_ESC_ENC_MBIAS,
     PARAM_ESC_ENC_EBIAS,
+    PARAM_ESC_MOT_L_D,
+    PARAM_ESC_MOT_L_Q,
+    PARAM_UAVCAN_NODE_ID,
 };
 
 void param_init(void);

@@ -137,8 +137,6 @@ static void allocation_update(void)
         return;
     }
 
-    uint32_t tnow_us = micros();
-
     // Check allocation timer
     if (micros() - allocation_state.request_timer_begin_us > allocation_state.request_delay_us) {
         allocation_timer_expired();
