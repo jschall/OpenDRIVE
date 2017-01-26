@@ -5,10 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <canard.h>
+#include <libopencm3/stm32/desig.h>
 
 #define APP_VERSION_MAJOR                                           0
 #define APP_VERSION_MINOR                                           1
 #define APP_NODE_NAME                                               "org.jc.esc"
+
+#define BIT_LEN_TO_SIZE(x) ((x+7)/8)
 
 #define UAVCAN_NODE_ID_ALLOCATION_DATA_TYPE_ID                      1
 #define UAVCAN_NODE_ID_ALLOCATION_DATA_TYPE_SIGNATURE               0x0b2a812620a11d40
@@ -23,9 +26,16 @@
 #define UAVCAN_NODE_STATUS_DATA_TYPE_ID                             341
 #define UAVCAN_NODE_STATUS_DATA_TYPE_SIGNATURE                      0x0f0868d0c1a7c6f1
 
-#define UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE                      ((3015 + 7) / 8)
+#define UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE                      BIT_LEN_TO_SIZE(3015)
 #define UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE                    0xee468a8121c46a9e
 #define UAVCAN_GET_NODE_INFO_DATA_TYPE_ID                           1
+
+#define UAVCAN_PARAM_GETSET_REQUEST_MAX_SIZE                        BIT_LEN_TO_SIZE(1791)
+#define UAVCAN_PARAM_GETSET_RESPONSE_MAX_SIZE                       BIT_LEN_TO_SIZE(2967)
+#define UAVCAN_PARAM_GETSET_DATA_TYPE_ID                            11
+#define UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE                     0xa7b622f939d1a4d5
+
+#define UAVCAN_PARAM_VALUE_FLOAT_SIZE                               5
 
 #define UAVCAN_NODE_HEALTH_OK                                       0
 #define UAVCAN_NODE_HEALTH_WARNING                                  1
@@ -67,13 +77,10 @@ static void allocation_timer_expired(void);
 static void allocation_start_request_timer(void);
 static void allocation_start_followup_timer(void);
 
+
 void uavcan_init(void)
 {
-    uint8_t i;
-    for (i = 0; i < UNIQUE_ID_LENGTH_BYTES; i++)
-    {
-        node_unique_id[i] = i;
-    }
+    desig_get_unique_id((uint32_t*)&node_unique_id[0]);
     canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer);
     allocation_init();
 }
@@ -165,7 +172,7 @@ static void allocation_timer_expired(void)
     allocation_state.unique_id_offset = 0;
 }
 
-static void allocation_message_received(CanardRxTransfer* transfer)
+static void handle_allocation_data_broadcast(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     if (!allocation_running()) {
         return;
@@ -185,7 +192,7 @@ static void allocation_message_received(CanardRxTransfer* transfer)
     uint8_t i;
     for (i=0; i<received_unique_id_len; i++)
     {
-        canardDecodeScalar(transfer, i*8+UAVCAN_NODE_ID_ALLOCATION_UID_BIT_OFFSET, UAVCAN_NODE_ID_ALLOCATION_UID_BIT_OFFSET, false, &received_unique_id[i]);
+        canardDecodeScalar(transfer, i*8+UAVCAN_NODE_ID_ALLOCATION_UID_BIT_OFFSET, 8, false, &received_unique_id[i]);
     }
 
     if(memcmp(node_unique_id, received_unique_id, received_unique_id_len) != 0)
@@ -203,7 +210,7 @@ static void allocation_message_received(CanardRxTransfer* transfer)
         uint8_t allocated_node_id = 0;
         canardDecodeScalar(transfer, 0, 7, false, &allocated_node_id);
         if (allocated_node_id != 0) {
-            canardSetLocalNodeID(&canard, allocated_node_id);
+            canardSetLocalNodeID(ins, allocated_node_id);
         }
     }
 }
@@ -249,34 +256,118 @@ static void process1HzTasks(void)
     node_mode = UAVCAN_NODE_MODE_OPERATIONAL;
 }
 
+static void handle_get_node_info_request(CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    uint8_t buffer[UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE];
+    memset(buffer, 0, UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE);
+    makeNodeStatusMessage(buffer);
+
+    // Version
+    buffer[7] = APP_VERSION_MAJOR;
+    buffer[8] = APP_VERSION_MINOR;
+    buffer[9] = 1;                          // Optional field flags, VCS commit is set
+
+    // Git hash
+    uint32_t u32 = GIT_HASH;
+    canardEncodeScalar(buffer, 80, 32, &u32);
+
+    // Unique ID
+    memcpy(&buffer[24], node_unique_id, sizeof(node_unique_id));
+
+    // Name
+    const size_t name_len = strlen(APP_NODE_NAME);
+    memcpy(&buffer[41], APP_NODE_NAME, name_len);
+
+    const size_t total_size = 41 + name_len;
+
+    canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE, UAVCAN_GET_NODE_INFO_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, buffer, total_size);
+}
+
+#define NUM_PARAMS 3
+
+static struct bogo_param_s {
+    char name[93];
+    float value;
+} fake_params[NUM_PARAMS] = {
+    {"vendor.constants.pi", 4.0f},
+    {"vendor.penis.size_meters", 1e9f},
+    {"vendor.constants.e^(i*pi)", -1.0f}
+};
+
+
+
+static void handle_param_getset_request(CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    uint16_t param_idx;
+    uint8_t value_type;
+    uint8_t value_len;
+    uint8_t name_len;
+
+    canardDecodeScalar(transfer, 0, 13, false, &param_idx);
+    canardDecodeScalar(transfer, 13, 3, false, &value_type);
+    switch(value_type) {
+        case 0: // Empty
+            value_len = 0;
+            break;
+        case 1: // int64
+            value_len = 8;
+            break;
+        case 2: // float32
+            value_len = 4;
+            break;
+        case 3: // uint8
+            value_len = 1;
+            break;
+        case 4: // string
+            canardDecodeScalar(transfer, 16, 8, false, &value_len);
+            break;
+    }
+    canardDecodeScalar(transfer, 16+value_len*8, 8, false, &name_len);
+
+    if (name_len == 0 && value_type == 0) {
+        // This is a request for a parameter by index
+        uint8_t buffer[UAVCAN_PARAM_GETSET_RESPONSE_MAX_SIZE];
+        size_t buffer_size;
+
+        if (param_idx < NUM_PARAMS) {
+            size_t resp_name_len = strlen(fake_params[param_idx].name);
+            // respond with the param name and value
+            buffer[0] = 2; // param type
+            memcpy(&buffer[1], &fake_params[param_idx].value, sizeof(float)); // param value
+            buffer[5] = 0; // param default value
+            buffer[6] = 0; // param max value
+            buffer[7] = 0; // param min value
+//             buffer[8] = resp_name_len; // param name len
+            memcpy(&buffer[8], fake_params[param_idx].name, resp_name_len); // param name
+            buffer_size = 8+resp_name_len;
+        } else {
+            // respond with empty name and value
+            buffer[0] = 0; // param type
+            buffer[1] = 0; // param default value
+            buffer[2] = 0; // param max value
+            buffer[3] = 0; // param min value
+            buffer[4] = 0; // param name len
+            buffer_size = 4;
+        }
+        canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE, UAVCAN_PARAM_GETSET_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, buffer, buffer_size);
+    }
+
+//     memset(name, 0, sizeof(name));
+//     for (i=0; i<name_len; i++) {
+//         canardDecodeScalar(transfer, 16+value_len*8+i*8, 8, false, &name[i]);
+//     }
+
+
+}
+
 static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     if (transfer->transfer_type == CanardTransferTypeBroadcast && transfer->data_type_id == UAVCAN_NODE_ID_ALLOCATION_DATA_TYPE_ID) {
-        allocation_message_received(transfer);
+        handle_allocation_data_broadcast(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_GET_NODE_INFO_DATA_TYPE_ID) {
-        uint8_t buffer[UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE];
-        memset(buffer, 0, UAVCAN_GET_NODE_INFO_RESPONSE_MAX_SIZE);
-        makeNodeStatusMessage(buffer);
-
-        // Version
-        buffer[7] = APP_VERSION_MAJOR;
-        buffer[8] = APP_VERSION_MINOR;
-        buffer[9] = 1;                          // Optional field flags, VCS commit is set
-
-        // Git hash
-        uint32_t u32 = GIT_HASH;
-        canardEncodeScalar(buffer, 80, 32, &u32);
-
-        // Unique ID
-        memcpy(&buffer[24], node_unique_id, sizeof(node_unique_id));
-
-        // Name
-        const size_t name_len = strlen(APP_NODE_NAME);
-        memcpy(&buffer[41], APP_NODE_NAME, name_len);
-
-        const size_t total_size = 41 + name_len;
-
-        canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE, UAVCAN_GET_NODE_INFO_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, buffer, total_size);
+        handle_get_node_info_request(ins, transfer);
+    } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_PARAM_GETSET_DATA_TYPE_ID) {
+        handle_param_getset_request(ins, transfer);
     }
 }
 
@@ -313,6 +404,12 @@ static bool shouldAcceptTransfer(const CanardInstance* ins, uint64_t* out_data_t
     if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_GET_NODE_INFO_DATA_TYPE_ID)
     {
         *out_data_type_signature = UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE;
+        return true;
+    }
+
+    if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_PARAM_GETSET_DATA_TYPE_ID)
+    {
+        *out_data_type_signature = UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE;
         return true;
     }
 
