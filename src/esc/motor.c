@@ -422,11 +422,11 @@ void motor_run_commutation(float dt)
         }
 
         case MOTOR_MODE_PHASE_VOLTAGE_TEST: {
-            float theta = wrap_2pi(millis()*1e-3f);
+            float theta = wrap_2pi(micros()*1e-6f*1000.0f*2.0f*M_PI_F);
             float sin_theta = sinf_fast(theta);
             float cos_theta = cosf_fast(theta);
 
-            float v = constrain_float(calibration_voltage, 0.0f, vbatt_m);
+            float v = constrain_float(0.5f, 0.0f, vbatt_m);
             u_alpha = v * cos_theta;
             u_beta = v * sin_theta;
 
@@ -462,7 +462,7 @@ void motor_set_mode(enum motor_mode_t new_mode)
     iq_pid_param.i_ref = 0.0f;
 
     if (new_mode == MOTOR_MODE_FOC_CURRENT) {
-        ekf_init(0);
+//         ekf_init(0);
     }
 
     motor_mode = new_mode;
@@ -471,6 +471,11 @@ void motor_set_mode(enum motor_mode_t new_mode)
 void motor_set_iq_ref(float iq_ref)
 {
     iq_pid_param.i_ref = iq_ref;
+}
+
+float motor_get_iq_meas(void)
+{
+    return iq_meas;
 }
 
 enum motor_mode_t motor_get_mode(void)

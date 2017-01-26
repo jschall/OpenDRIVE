@@ -34,8 +34,8 @@ enum param_key_t {
 
 void param_init(void);
 bool param_set_and_save(enum param_key_t key, float value);
-float param_retrieve(enum param_key_t key);
-float param_retrieve_by_index(uint16_t idx);
+float* param_retrieve_by_key(enum param_key_t key);
+float* param_retrieve_by_index(uint16_t idx);
 bool param_get_name_value_by_index(uint8_t idx, char* name, float* value);
 void param_erase(void);
 void param_squash(void);

@@ -147,17 +147,17 @@ uint8_t param_get_num_params(void)
     return NUM_PARAMS;
 }
 
-float param_retrieve(enum param_key_t key)
+float* param_retrieve_by_key(enum param_key_t key)
 {
     return param_retrieve_by_index(param_get_index(key));
 }
 
-float param_retrieve_by_index(uint16_t idx)
+float* param_retrieve_by_index(uint16_t idx)
 {
     if (idx >= NUM_PARAMS) {
-        return 0.0f;
+        return NULL;
     }
-    return param_cache[idx];
+    return &param_cache[idx];
 }
 
 bool param_index_in_range(uint8_t idx)
