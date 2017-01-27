@@ -13,6 +13,8 @@ import sys
 # "Extended Kalman Filter Based Speed Sensorless PMSM Control with Load Reconstruction," Janiszewski, 2010
 # "Dynamic Model of PM Synchronous Motors," Ohm, 2000
 #     http://www.drivetechinc.com/articles/IM97PM_Rev1forPDF.pdf
+# "AC Drive Observability Analysis"
+#     https://www.ceitec.cz/rp2-ac-drive-observability-analysis/f1220
 
 # Parameters
 dt  = Symbol('dt')  # Time step
@@ -27,6 +29,7 @@ i_pnoise = Symbol('i_pnoise') # Current process noise
 omega_pnoise = Symbol('omega_pnoise')
 theta_pnoise = Symbol('theta_pnoise')
 K_t = 30./(K_v*pi) # Motor torque constant.
+K_m = K_t/N_P
 lambda_r = 2./3. * K_t/N_P # Rotor flux linkage - Ohm, section III, eqn 3.7
 
 # Inputs
@@ -42,32 +45,39 @@ z = toVec(i_ab_m) # Observation vector
 R = diag(i_noise**2,i_noise**2) # Covariance of observation vector
 
 # States
-omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, R_s, L_d, L_q = symbols('state[0:8]')
-x = toVec(omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, R_s, L_d, L_q)
+omega_r, theta_e, i_alpha, i_beta, T_l_est, R_s, L_d, L_q = symbols('state[0:8]')
+x = toVec(omega_r, theta_e, i_alpha, i_beta, T_l_est, R_s, L_d, L_q)
 nStates = len(x)
 
 # Covariance matrix
 P = compressedSymmetricMatrix('cov', nStates)
 
 # Derived variables
-omega_e_est = omega_r_est*N_P
-theta_r_est = theta_e_est/N_P
+omega_e = omega_r*N_P
+theta_r = theta_e/N_P
 
 R_ab_dq = lambda theta: Matrix([[ cos(theta), sin(theta)],
                                 [-sin(theta), cos(theta)]])
 R_dq_ab = lambda theta: R_ab_dq(theta).T
 
-# f: state-transtition model
-#next_theta_e = theta_e_est + dt*omega_e_est
-u_dq = R_ab_dq(theta_e_est) * u_ab
-u_d = u_dq[0]
-u_q = u_dq[1]
+i_ab = Matrix([i_alpha, i_beta])
+i_dq = R_ab_dq(theta_e)*i_ab
+i_d, i_q = i_dq[0], i_dq[1]
 
+u_alpha, u_beta = u_ab[0], u_ab[1]
+
+i_alpha_dot = (-L_d*L_q*i_beta*omega_e + L_d*(K_m*omega_e + L_d*i_alpha*omega_e*cos(theta_e) + L_d*i_beta*omega_e*sin(theta_e) - R_s*i_alpha*sin(theta_e) + R_s*i_beta*cos(theta_e) + u_alpha*sin(theta_e) - u_beta*cos(theta_e))*sin(theta_e) + L_q*(-L_q*i_alpha*omega_e*sin(2*theta_e) + L_q*i_beta*omega_e*cos(2*theta_e) + L_q*i_beta*omega_e - R_s*i_alpha*cos(2*theta_e) - R_s*i_alpha - R_s*i_beta*sin(2*theta_e) + u_alpha*cos(2*theta_e) + u_alpha + u_beta*sin(2*theta_e))/2)/(L_d*L_q)
+
+i_beta_dot = (2*L_d*L_q*i_alpha*omega_e + L_d*(-2*K_m*omega_e*cos(theta_e) - L_d*i_alpha*omega_e*cos(2*theta_e) - L_d*i_alpha*omega_e - L_d*i_beta*omega_e*sin(2*theta_e) + R_s*i_alpha*sin(2*theta_e) - R_s*i_beta*cos(2*theta_e) - R_s*i_beta - u_alpha*sin(2*theta_e) + u_beta*cos(2*theta_e) + u_beta) + L_q*(L_q*i_alpha*omega_e*cos(2*theta_e) - L_q*i_alpha*omega_e + L_q*i_beta*omega_e*sin(2*theta_e) - R_s*i_alpha*sin(2*theta_e) + R_s*i_beta*cos(2*theta_e) - R_s*i_beta + u_alpha*sin(2*theta_e) - u_beta*cos(2*theta_e) + u_beta))/(2*L_d*L_q)
+
+omega_r_dot = i_q*K_t/J + (L_d-L_q)*i_q*i_d - T_l_est/J
+
+# f: state-transtition model
 f = Matrix([
-    [omega_r_est + dt*(i_q_est*K_t/J + (L_d-L_q)*i_q_est*i_d_est - T_l_est/J)],
-    [theta_e_est + dt*omega_e_est],
-    [i_d_est + dt*(L_q*omega_e_est*i_q_est - R_s*i_d_est + u_d)/L_d],
-    [i_q_est + dt*(-L_d*omega_e_est*i_d_est - R_s*i_q_est - lambda_r*omega_e_est + u_q)/L_q],
+    [omega_r + dt*omega_r_dot],
+    [theta_e + dt*omega_e],
+    [i_d + dt*i_alpha_dot],
+    [i_q + dt*i_beta_dot],
     [T_l_est],
     [R_s],
     [L_d],
@@ -86,7 +96,7 @@ G = f.jacobian(u)
 
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
-Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.2*28*1e-6*dt)**2, (0.2*44*1e-6*dt)**2)
+Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.*28*1e-6*dt)**2, (0.*44*1e-6*dt)**2)
 
 x_p = f
 
@@ -95,7 +105,7 @@ P_p = F*P*F.T + Q
 assert P_p.shape == P.shape
 
 # h: predicted measurement
-h = R_dq_ab(theta_e_est) * Matrix([i_d_est, i_q_est])
+h = i_ab
 
 # y: innovation vector
 y = z-h
@@ -124,10 +134,10 @@ P_n = upperTriangularToVec(P_n)
 def print_code():
     global x_n, P_n
     #subs = [
-        #(sin(theta_e_est), Symbol('ekf_sin_theta')),
-        #(cos(theta_e_est), Symbol('ekf_cos_theta')),
-        #(sin(theta_e_est+dt*omega_e_est), Symbol('next_ekf_sin_theta')),
-        #(cos(theta_e_est+dt*omega_e_est), Symbol('next_ekf_cos_theta'))
+        #(sin(theta_e), Symbol('ekf_sin_theta')),
+        #(cos(theta_e), Symbol('ekf_cos_theta')),
+        #(sin(theta_e+dt*omega_e), Symbol('next_ekf_sin_theta')),
+        #(cos(theta_e+dt*omega_e), Symbol('next_ekf_cos_theta'))
         #]
     #x_n = x_n.subs(subs)
     #P_n = P_n.subs(subs)
@@ -202,9 +212,9 @@ def test_ekf():
     S_lambda = lambdify(lambda_args, S)
     y_lambda = lambdify(lambda_args, y)
 
-    init_P = upperTriangularToVec(diag(10.**2, (math.pi)**2, 0.01**2, 0.01**2, 0.1**2, 0*(0.1*.102)**2, (0.2*28.0*1e-6)**2, (0.2*43.0*1e-6)**2))
+    init_P = upperTriangularToVec(diag(10.**2, (math.pi)**2, 0.01**2, 0.01**2, 0.1**2, 0*(0.1*.102)**2, (0.*28.0*1e-6)**2, (0.*43.0*1e-6)**2))
 
-    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 44.0*1e-6, 77.0*1e-6])
+    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 28.0*1e-6, 44.0*1e-6])
     curr_P = np.array(init_P.T)
     curr_subx = np.zeros(len(subx_lambda))
 
@@ -262,19 +272,16 @@ def test_ekf():
             T_l_sigma = float(next_P_uncompressed[4,4]**0.5)
             omega_e_mu = next_x[0][0]*7
             omega_e_sigma = float(next_P_uncompressed[0,0]**0.5 * 7)
-            i_d_mu = next_x[2][0]
-            i_d_sigma = float(next_P_uncompressed[2,2]**0.5)
-            i_q_mu = next_x[3][0]
-            i_q_sigma = float(next_P_uncompressed[3,3]**0.5)
+            i_alpha_mu = next_x[2][0]
+            i_alpha_sigma = float(next_P_uncompressed[2,2]**0.5)
+            i_beta_mu = next_x[3][0]
+            i_beta_sigma = float(next_P_uncompressed[3,3]**0.5)
             R_s_mu = next_x[5][0]
             R_s_sigma = float(next_P_uncompressed[5,5]**0.5)
             L_d_mu = next_x[6][0]
             L_d_sigma = float(next_P_uncompressed[6,6]**0.5)
             L_q_mu = next_x[7][0]
             L_q_sigma = float(next_P_uncompressed[6,6]**0.5)
-
-            u_dq_truth = R_ab_dq(theta_e_truth) * Matrix([u_alpha, u_beta])
-            i_dq_truth = (R_ab_dq(theta_e_truth) * Matrix([i_alpha_m, i_beta_m]))
 
             add_plot_data('t', t)
 
@@ -296,19 +303,15 @@ def test_ekf():
             add_plot_data('T_l_est_min',T_l_mu-T_l_sigma)
             add_plot_data('T_l_est_max',T_l_mu+T_l_sigma)
 
-            add_plot_data('i_d_est', i_d_mu)
-            add_plot_data('i_d_est_min', i_d_mu-i_d_sigma)
-            add_plot_data('i_d_est_max', i_d_mu+i_d_sigma)
-            add_plot_data('i_d_truth', i_dq_truth[0])
-            add_plot_data('i_d_truth_min', i_dq_truth[0]-i_noise.xreplace(subs))
-            add_plot_data('i_d_truth_max', i_dq_truth[0]+i_noise.xreplace(subs))
+            add_plot_data('i_alpha_est', i_alpha_mu)
+            add_plot_data('i_alpha_est_min', i_alpha_mu-i_alpha_sigma)
+            add_plot_data('i_alpha_est_max', i_alpha_mu+i_alpha_sigma)
+            add_plot_data('i_alpha_m', i_alpha_m)
 
-            add_plot_data('i_q_est', i_q_mu)
-            add_plot_data('i_q_est_min', i_q_mu-i_q_sigma)
-            add_plot_data('i_q_est_max', i_q_mu+i_q_sigma)
-            add_plot_data('i_q_truth', i_dq_truth[1])
-            add_plot_data('i_q_truth_min', i_dq_truth[1]-i_noise.xreplace(subs))
-            add_plot_data('i_q_truth_max', i_dq_truth[1]+i_noise.xreplace(subs))
+            add_plot_data('i_beta_est', i_beta_mu)
+            add_plot_data('i_beta_est_min', i_beta_mu-i_beta_sigma)
+            add_plot_data('i_beta_est_max', i_beta_mu+i_beta_sigma)
+            add_plot_data('i_beta_m', i_beta_m)
 
             add_plot_data('omega_e_err', omega_e_mu-omega_e_truth)
 
@@ -341,31 +344,23 @@ def test_ekf():
     plt.subplot(4,2,1)
     plt.title('electrical rotor angle')
     plt.fill_between(plot_data['t'], plot_data['theta_e_est_min'], plot_data['theta_e_est_max'], facecolor='b', alpha=0.25)
-    #plt.plot(plot_data['t'], plot_data['theta_e_truth_min'], color='g', linestyle=':')
-    #plt.plot(plot_data['t'], plot_data['theta_e_truth_max'], color='g', linestyle=':')
     plt.plot(plot_data['t'], plot_data['theta_e_est'], color='b')
     plt.plot(plot_data['t'], plot_data['theta_e_truth'], color='g')
     plt.subplot(4,2,2)
     plt.title('electrical rotor angular velocity')
     plt.fill_between(plot_data['t'], plot_data['omega_e_est_min'], plot_data['omega_e_est_max'], facecolor='b', alpha=0.25)
-    #plt.plot(plot_data['t'], plot_data['omega_e_truth_min'], color='g', linestyle=':')
-    #plt.plot(plot_data['t'], plot_data['omega_e_truth_max'], color='g', linestyle=':')
     plt.plot(plot_data['t'], plot_data['omega_e_est'], color='b')
     plt.plot(plot_data['t'], plot_data['omega_e_truth'], color='g')
     plt.subplot(4,2,3)
     plt.title('d-axis current')
-    plt.fill_between(plot_data['t'], plot_data['i_d_est_min'], plot_data['i_d_est_max'], facecolor='b', alpha=0.25)
-    #plt.plot(plot_data['t'], plot_data['i_d_truth_min'], color='g', linestyle=':')
-    #plt.plot(plot_data['t'], plot_data['i_d_truth_max'], color='g', linestyle=':')
-    plt.plot(plot_data['t'], plot_data['i_d_est'], color='b')
-    plt.plot(plot_data['t'], plot_data['i_d_truth'], color='g')
+    plt.fill_between(plot_data['t'], plot_data['i_alpha_est_min'], plot_data['i_alpha_est_max'], facecolor='b', alpha=0.25)
+    plt.plot(plot_data['t'], plot_data['i_alpha_est'], color='b')
+    plt.plot(plot_data['t'], plot_data['i_alpha_m'], color='g')
     plt.subplot(4,2,4)
     plt.title('q-axis current')
-    plt.fill_between(plot_data['t'], plot_data['i_q_est_min'], plot_data['i_q_est_max'], facecolor='b', alpha=0.25)
-    #plt.plot(plot_data['t'], plot_data['i_q_truth_min'], color='g', linestyle=':')
-    #plt.plot(plot_data['t'], plot_data['i_q_truth_max'], color='g', linestyle=':')
-    plt.plot(plot_data['t'], plot_data['i_q_est'], color='b')
-    plt.plot(plot_data['t'], plot_data['i_q_truth'], color='g')
+    plt.fill_between(plot_data['t'], plot_data['i_beta_est_min'], plot_data['i_beta_est_max'], facecolor='b', alpha=0.25)
+    plt.plot(plot_data['t'], plot_data['i_beta_est'], color='b')
+    plt.plot(plot_data['t'], plot_data['i_beta_m'], color='g')
     plt.subplot(4,2,5)
     plt.title('load torque')
     plt.fill_between(plot_data['t'],plot_data['T_l_est_max'],plot_data['T_l_est_min'],facecolor='b',alpha=.25)
