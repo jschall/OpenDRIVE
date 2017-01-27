@@ -96,7 +96,7 @@ G = f.jacobian(u)
 
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
-Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.2*45*1e-6*dt)**2, (0.2*80*1e-6*dt)**2)
+Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.0*45*1e-6*dt)**2, (0.0*80*1e-6*dt)**2)
 
 x_p = f
 
@@ -212,9 +212,9 @@ def test_ekf():
     S_lambda = lambdify(lambda_args, S)
     y_lambda = lambdify(lambda_args, y)
 
-    init_P = upperTriangularToVec(diag(0.**2, 0.**2, 0.01**2, 0.01**2, 0.0**2, 0*(0.1*.102)**2, (0.5*45.0*1e-6)**2, (0.5*80.0*1e-6)**2))
+    init_P = upperTriangularToVec(diag(10.**2, math.pi**2, 0.01**2, 0.01**2, 0.0**2, 0*(0.1*.102)**2, (0.0*28.0*1e-6)**2, (0.0*43.0*1e-6)**2))
 
-    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 100.0*1e-6, 142.0*1e-6])
+    curr_x = np.array([0.,data['theta_e'][0][0]+math.pi/4, 0., 0., 0., .102, 45.0*1e-6, 67.0*1e-6])
     curr_P = np.array(init_P.T)
     curr_subx = np.zeros(len(subx_lambda))
 
@@ -352,12 +352,12 @@ def test_ekf():
     plt.plot(plot_data['t'], plot_data['omega_e_est'], color='b')
     plt.plot(plot_data['t'], plot_data['omega_e_truth'], color='g')
     plt.subplot(4,2,3)
-    plt.title('d-axis current')
+    plt.title('alpha-axis current')
     plt.fill_between(plot_data['t'], plot_data['i_alpha_est_min'], plot_data['i_alpha_est_max'], facecolor='b', alpha=0.25)
     plt.plot(plot_data['t'], plot_data['i_alpha_est'], color='b')
     plt.plot(plot_data['t'], plot_data['i_alpha_m'], color='g')
     plt.subplot(4,2,4)
-    plt.title('q-axis current')
+    plt.title('beta-axis current')
     plt.fill_between(plot_data['t'], plot_data['i_beta_est_min'], plot_data['i_beta_est_max'], facecolor='b', alpha=0.25)
     plt.plot(plot_data['t'], plot_data['i_beta_est'], color='b')
     plt.plot(plot_data['t'], plot_data['i_beta_m'], color='g')

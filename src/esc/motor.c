@@ -422,11 +422,11 @@ void motor_run_commutation(float dt)
         }
 
         case MOTOR_MODE_PHASE_VOLTAGE_TEST: {
-            float theta = wrap_2pi(micros()*1e-6f*1000.0f*2.0f*M_PI_F);
+            float theta = wrap_2pi(micros()*1e-6f*500.0f*2.0f*M_PI_F);
             float sin_theta = sinf_fast(theta);
             float cos_theta = cosf_fast(theta);
 
-            float v = constrain_float(0.5f, 0.0f, vbatt_m);
+            float v = constrain_float(2.0f, 0.0f, vbatt_m);
             u_alpha = v * cos_theta;
             u_beta = v * sin_theta;
 
