@@ -66,9 +66,9 @@ i_d, i_q = i_dq[0], i_dq[1]
 
 u_alpha, u_beta = u_ab[0], u_ab[1]
 
-i_alpha_dot = (-L_d*L_q*i_beta*omega_e + L_d*(K_m*omega_e + L_d*i_alpha*omega_e*cos(theta_e) + L_d*i_beta*omega_e*sin(theta_e) - R_s*i_alpha*sin(theta_e) + R_s*i_beta*cos(theta_e) + u_alpha*sin(theta_e) - u_beta*cos(theta_e))*sin(theta_e) + L_q*(-L_q*i_alpha*omega_e*sin(2*theta_e) + L_q*i_beta*omega_e*cos(2*theta_e) + L_q*i_beta*omega_e - R_s*i_alpha*cos(2*theta_e) - R_s*i_alpha - R_s*i_beta*sin(2*theta_e) + u_alpha*cos(2*theta_e) + u_alpha + u_beta*sin(2*theta_e))/2)/(L_d*L_q)
+i_alpha_dot = (-L_d*L_q*i_beta*omega_e + L_d*(lambda_r*omega_e + L_d*i_alpha*omega_e*cos(theta_e) + L_d*i_beta*omega_e*sin(theta_e) - R_s*i_alpha*sin(theta_e) + R_s*i_beta*cos(theta_e) + u_alpha*sin(theta_e) - u_beta*cos(theta_e))*sin(theta_e) + L_q*(-L_q*i_alpha*omega_e*sin(2*theta_e) + L_q*i_beta*omega_e*cos(2*theta_e) + L_q*i_beta*omega_e - R_s*i_alpha*cos(2*theta_e) - R_s*i_alpha - R_s*i_beta*sin(2*theta_e) + u_alpha*cos(2*theta_e) + u_alpha + u_beta*sin(2*theta_e))/2)/(L_d*L_q)
 
-i_beta_dot = (2*L_d*L_q*i_alpha*omega_e + L_d*(-2*K_m*omega_e*cos(theta_e) - L_d*i_alpha*omega_e*cos(2*theta_e) - L_d*i_alpha*omega_e - L_d*i_beta*omega_e*sin(2*theta_e) + R_s*i_alpha*sin(2*theta_e) - R_s*i_beta*cos(2*theta_e) - R_s*i_beta - u_alpha*sin(2*theta_e) + u_beta*cos(2*theta_e) + u_beta) + L_q*(L_q*i_alpha*omega_e*cos(2*theta_e) - L_q*i_alpha*omega_e + L_q*i_beta*omega_e*sin(2*theta_e) - R_s*i_alpha*sin(2*theta_e) + R_s*i_beta*cos(2*theta_e) - R_s*i_beta + u_alpha*sin(2*theta_e) - u_beta*cos(2*theta_e) + u_beta))/(2*L_d*L_q)
+i_beta_dot = (2*L_d*L_q*i_alpha*omega_e + L_d*(-2*lambda_r*omega_e*cos(theta_e) - L_d*i_alpha*omega_e*cos(2*theta_e) - L_d*i_alpha*omega_e - L_d*i_beta*omega_e*sin(2*theta_e) + R_s*i_alpha*sin(2*theta_e) - R_s*i_beta*cos(2*theta_e) - R_s*i_beta - u_alpha*sin(2*theta_e) + u_beta*cos(2*theta_e) + u_beta) + L_q*(L_q*i_alpha*omega_e*cos(2*theta_e) - L_q*i_alpha*omega_e + L_q*i_beta*omega_e*sin(2*theta_e) - R_s*i_alpha*sin(2*theta_e) + R_s*i_beta*cos(2*theta_e) - R_s*i_beta + u_alpha*sin(2*theta_e) - u_beta*cos(2*theta_e) + u_beta))/(2*L_d*L_q)
 
 omega_r_dot = i_q*K_t/J + (L_d-L_q)*i_q*i_d - T_l_est/J
 
@@ -76,8 +76,8 @@ omega_r_dot = i_q*K_t/J + (L_d-L_q)*i_q*i_d - T_l_est/J
 f = Matrix([
     [omega_r + dt*omega_r_dot],
     [theta_e + dt*omega_e],
-    [i_d + dt*i_alpha_dot],
-    [i_q + dt*i_beta_dot],
+    [i_alpha + dt*i_alpha_dot],
+    [i_beta + dt*i_beta_dot],
     [T_l_est],
     [R_s],
     [L_d],
@@ -96,7 +96,7 @@ G = f.jacobian(u)
 
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
-Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.*28*1e-6*dt)**2, (0.*44*1e-6*dt)**2)
+Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.2*45*1e-6*dt)**2, (0.2*80*1e-6*dt)**2)
 
 x_p = f
 
@@ -183,9 +183,9 @@ def test_ekf():
         K_v:360.,
         J:0.00003,
         N_P:7,
-        i_noise: 0.05,
-        u_noise: 0.3,
-        T_l_pnoise: 100.*dt,
+        i_noise: 0.06,
+        u_noise: 0.5,
+        T_l_pnoise: 25.*dt,
         }
 
     x_n = x_n.xreplace(subs).xreplace(subs)
@@ -212,9 +212,9 @@ def test_ekf():
     S_lambda = lambdify(lambda_args, S)
     y_lambda = lambdify(lambda_args, y)
 
-    init_P = upperTriangularToVec(diag(10.**2, (math.pi)**2, 0.01**2, 0.01**2, 0.1**2, 0*(0.1*.102)**2, (0.*28.0*1e-6)**2, (0.*43.0*1e-6)**2))
+    init_P = upperTriangularToVec(diag(0.**2, 0.**2, 0.01**2, 0.01**2, 0.0**2, 0*(0.1*.102)**2, (0.5*45.0*1e-6)**2, (0.5*80.0*1e-6)**2))
 
-    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 28.0*1e-6, 44.0*1e-6])
+    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 100.0*1e-6, 142.0*1e-6])
     curr_P = np.array(init_P.T)
     curr_subx = np.zeros(len(subx_lambda))
 
