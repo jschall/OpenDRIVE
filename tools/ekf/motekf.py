@@ -16,14 +16,15 @@ import sys
 
 # Parameters
 dt  = Symbol('dt')  # Time step
-#R_s = Symbol('R_s') # Stator resistance
-#L_d = Symbol('L_d')   # L_d
-#L_q = Symbol('L_q')   # L_q
+R_s = Symbol('R_s') # Stator resistance
+L_d = Symbol('L_d')   # L_d
+L_q = Symbol('L_q')   # L_q
 K_v = Symbol('K_v') # Motor back-emf constant, RPM/V
 N_P = Symbol('N_P') # Number of magnetic pole pairs
 J   = Symbol('J')   # Rotor inertia
 T_l_pnoise = Symbol('T_l_pnoise') # Load torque process noise
 i_pnoise = Symbol('i_pnoise') # Current process noise
+encoder_bias_pnoise = Symbol('encoder_bias_pnoise')
 omega_pnoise = Symbol('omega_pnoise')
 theta_pnoise = Symbol('theta_pnoise')
 K_t = 30./(K_v*pi) # Motor torque constant.
@@ -38,12 +39,14 @@ Q_u = diag(*w_u_sigma.multiply_elementwise(w_u_sigma)) # Covariance of additive 
 # Measurements
 i_ab_m = Matrix(symbols('i_alpha_m i_beta_m')) # Stator currents observed
 i_noise = Symbol('i_noise') # Additive noise on stator currents
-z = toVec(i_ab_m) # Observation vector
-R = diag(i_noise**2,i_noise**2) # Covariance of observation vector
+theta_e_m = Symbol('theta_e_m')
+theta_e_m_noise = Symbol('theta_e_m_noise')
+z = toVec(theta_e_m, i_ab_m) # Observation vector
+R = diag(theta_e_m_noise**2,i_noise**2,i_noise**2) # Covariance of observation vector
 
 # States
-omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, R_s, L_d, L_q = symbols('state[0:8]')
-x = toVec(omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, R_s, L_d, L_q)
+omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, encoder_bias = symbols('state[0:6]')
+x = toVec(omega_r_est, theta_e_est, i_d_est, i_q_est, T_l_est, encoder_bias)
 nStates = len(x)
 
 # Covariance matrix
@@ -69,9 +72,7 @@ f = Matrix([
     [i_d_est + dt*(L_q*omega_e_est*i_q_est - R_s*i_d_est + u_d)/L_d],
     [i_q_est + dt*(-L_d*omega_e_est*i_d_est - R_s*i_q_est - lambda_r*omega_e_est + u_q)/L_q],
     [T_l_est],
-    [R_s],
-    [L_d],
-    [L_q]
+    [encoder_bias]
     ])
 assert f.shape == x.shape
 
@@ -86,7 +87,7 @@ G = f.jacobian(u)
 
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
-Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, 0*(.102*dt)**2, (0.2*28*1e-6*dt)**2, (0.2*44*1e-6*dt)**2)
+Q += diag(0**2, 0**2, 0**2, 0**2, T_l_pnoise**2, encoder_bias_pnoise**2)
 
 x_p = f
 
@@ -95,7 +96,9 @@ P_p = F*P*F.T + Q
 assert P_p.shape == P.shape
 
 # h: predicted measurement
-h = R_dq_ab(theta_e_est) * Matrix([i_d_est, i_q_est])
+h = zeros(3,1)
+h[0:2,0] = R_dq_ab(theta_e_est) * Matrix([i_d_est, i_q_est])
+h[2,0] = theta_e_est-encoder_bias
 
 # y: innovation vector
 y = z-h
@@ -135,7 +138,9 @@ def print_code():
 
     x_n,P_n,subx = extractSubexpressions([x_n,P_n],'subx',threshold=5)
 
-    init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2))
+    print count_ops(x_n)+count_ops(P_n)+count_ops(subx)
+
+    init_P = upperTriangularToVec(diag(100., math.pi**2, i_noise**2, i_noise**2, 0.1**2, math.pi**2))
 
     for i in range(len(init_P)):
         print('cov[%u] = %s;' % (i, CCodePrinter_float().doprint(init_P[i])))
@@ -168,14 +173,15 @@ def test_ekf():
         P_n = P_p
 
     subs = {
-        #R_s:0.102,
-        #L:55.0*1e-6,
+        R_s:0.102,
+        L_d:40.0*1e-6,
+        L_q:70.0*1e-6,
         K_v:360.,
         J:0.00003,
         N_P:7,
         i_noise: 0.05,
-        u_noise: 0.3,
-        T_l_pnoise: 100.*dt,
+        u_noise: 0.6,
+        T_l_pnoise: 25.*dt,
         }
 
     x_n = x_n.xreplace(subs).xreplace(subs)
@@ -202,9 +208,9 @@ def test_ekf():
     S_lambda = lambdify(lambda_args, S)
     y_lambda = lambdify(lambda_args, y)
 
-    init_P = upperTriangularToVec(diag(10.**2, (math.pi)**2, 0.01**2, 0.01**2, 0.1**2, 0*(0.1*.102)**2, (0.2*28.0*1e-6)**2, (0.2*43.0*1e-6)**2))
+    init_P = upperTriangularToVec(diag(10.**2, (math.pi)**2, 0.01**2, 0.01**2, 0.1**2))
 
-    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0., .102, 44.0*1e-6, 77.0*1e-6])
+    curr_x = np.array([0.,data['theta_e'][0][0], 0., 0., 0.])
     curr_P = np.array(init_P.T)
     curr_subx = np.zeros(len(subx_lambda))
 
@@ -250,8 +256,9 @@ def test_ekf():
             if TRUTH_ANGLE_OVERRIDE:
                 next_x[1][0] = theta_e_truth
 
-            next_x[1][0] = fmod(next_x[1][0],2*math.pi)
-            if next_x[1][0] < 0:
+            while next_x[1][0] > 2*math.pi:
+                next_x[1][0] -= 2*math.pi
+            while next_x[1][0] < 0:
                 next_x[1][0] += 2*math.pi
 
             next_P_uncompressed = uncompressSymMatrix(next_P)
@@ -266,12 +273,6 @@ def test_ekf():
             i_d_sigma = float(next_P_uncompressed[2,2]**0.5)
             i_q_mu = next_x[3][0]
             i_q_sigma = float(next_P_uncompressed[3,3]**0.5)
-            R_s_mu = next_x[5][0]
-            R_s_sigma = float(next_P_uncompressed[5,5]**0.5)
-            L_d_mu = next_x[6][0]
-            L_d_sigma = float(next_P_uncompressed[6,6]**0.5)
-            L_q_mu = next_x[7][0]
-            L_q_sigma = float(next_P_uncompressed[6,6]**0.5)
 
             u_dq_truth = R_ab_dq(theta_e_truth) * Matrix([u_alpha, u_beta])
             i_dq_truth = (R_ab_dq(theta_e_truth) * Matrix([i_alpha_m, i_beta_m]))
@@ -315,16 +316,6 @@ def test_ekf():
             add_plot_data('theta_e_err', wrap_pi(theta_e_mu-theta_e_truth))
 
             add_plot_data('NIS',obs_NIS)
-
-            add_plot_data('R_s_est', R_s_mu)
-            add_plot_data('R_s_est_min', R_s_mu-R_s_sigma)
-            add_plot_data('R_s_est_max', R_s_mu+R_s_sigma)
-            add_plot_data('L_d_est', L_d_mu)
-            add_plot_data('L_d_est_min', L_d_mu-L_d_sigma)
-            add_plot_data('L_d_est_max', L_d_mu+L_d_sigma)
-            add_plot_data('L_q_est', L_q_mu)
-            add_plot_data('L_q_est_min', L_q_mu-L_q_sigma)
-            add_plot_data('L_q_est_max', L_q_mu+L_q_sigma)
 
 
             curr_x = next_x
@@ -380,17 +371,7 @@ def test_ekf():
     plt.title('electrical rotor angular velocity error vs sensor')
     plt.plot(plot_data['t'], plot_data['omega_e_err'])
 
-
-    plt.figure(2)
-    plt.subplot(2,1,1)
-    plt.fill_between(plot_data['t'],plot_data['R_s_est_max'],plot_data['R_s_est_min'],facecolor='b',alpha=.25)
-    plt.plot(plot_data['t'], plot_data['R_s_est'], color='b')
-    plt.subplot(2,1,2)
-    plt.fill_between(plot_data['t'],plot_data['L_d_est_max'],plot_data['L_d_est_min'],facecolor='b',alpha=.25)
-    plt.plot(plot_data['t'], plot_data['L_d_est'], color='b')
-    plt.fill_between(plot_data['t'],plot_data['L_q_est_max'],plot_data['L_q_est_min'],facecolor='r',alpha=.25)
-    plt.plot(plot_data['t'], plot_data['L_q_est'], color='r')
     plt.show()
 
-#print_code()
-test_ekf()
+print_code()
+#test_ekf()

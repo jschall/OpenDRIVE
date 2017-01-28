@@ -46,6 +46,14 @@
 #define UAVCAN_RESTARTNODE_DATA_TYPE_ID                             5
 #define UAVCAN_RESTARTNODE_DATA_TYPE_SIGNATURE                      0x569e05394a3017f0
 
+#define UAVCAN_ESC_STATUS_MESSAGE_SIZE                              BIT_LEN_TO_SIZE(110)
+#define UAVCAN_ESC_STATUS_DATA_TYPE_ID                              1034
+#define UAVCAN_ESC_STATUS_DATA_TYPE_SIGNATURE                       0xa9af28aea2fbb254
+
+#define UAVCAN_DEBUG_KEYVALUE_MESSAGE_MAX_SIZE                      BIT_LEN_TO_SIZE(502)
+#define UAVCAN_DEBUG_KEYVALUE_DATA_TYPE_ID                          16370
+#define UAVCAN_DEBUG_KEYVALUE_DATA_TYPE_SIGNATURE                   0xe02f25d6e0c98ae0
+
 #define UAVCAN_PARAM_VALUE_FLOAT_SIZE                               5
 
 #define UAVCAN_NODE_HEALTH_OK                                       0
@@ -144,6 +152,16 @@ void uavcan_update(void)
 void uavcan_set_restart_cb(restart_handler_ptr cb)
 {
     restart_cb = cb;
+}
+
+void uavcan_send_debug_key_value(const char* name, float val)
+{
+    size_t name_len = strlen(name);
+    uint8_t msg_buf[UAVCAN_DEBUG_KEYVALUE_MESSAGE_MAX_SIZE];
+    memcpy(&msg_buf[0], &val, sizeof(float));
+    memcpy(&msg_buf[4], name, name_len);
+    uint8_t transfer_id;
+    canardBroadcast(&canard, UAVCAN_DEBUG_KEYVALUE_DATA_TYPE_SIGNATURE, UAVCAN_DEBUG_KEYVALUE_DATA_TYPE_ID, &transfer_id, CANARD_TRANSFER_PRIORITY_LOWEST, msg_buf, sizeof(float)+name_len);
 }
 
 // Node ID allocation - implementation of http://uavcan.org/Specification/figures/dynamic_node_id_allocatee_algorithm.svg

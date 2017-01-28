@@ -27,7 +27,7 @@
 static uint32_t tbegin_us;
 static bool waiting_to_start = false;
 static bool started = false;
-static float t_max = 0.3f;
+static float t_max = 10.0f;
 
 void program_init(void) {
     // Calibrate the encoder
@@ -45,17 +45,17 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
     } else if (waiting_to_start && !started && t > 0.1f) {
         tbegin_us = micros();
         started = true;
-        motor_set_mode(MOTOR_MODE_SPEED_CONTROL);
-    }/* else if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
+        motor_set_mode(MOTOR_MODE_FOC_CURRENT);
+    } else if (started && t > t_max && motor_get_mode() != MOTOR_MODE_DISABLED) {
         motor_set_mode(MOTOR_MODE_DISABLED);
-    }*/
+    }
 
-    motor_set_omega_ref(t*0.5f);
+    motor_set_iq_ref(20*sinf_fast(0.2*2*M_PI_F*t));
     motor_update_state(dt, adc_sample);
     motor_run_commutation(dt);
     motor_update_ekf(dt);
 
-//     if (started && motor_get_mode() != MOTOR_MODE_DISABLED) {
-//         motor_print_data(dt);
-//     }
+    if (started && motor_get_mode() != MOTOR_MODE_DISABLED) {
+        motor_print_data(dt);
+    }
 }
