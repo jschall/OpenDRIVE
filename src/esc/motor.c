@@ -54,6 +54,7 @@ static float elec_theta_m = 0.0f; // electrical rotor angle
 static float elec_theta_est = 0.0f;
 static float elec_omega_est = 0.0f;
 static float mech_omega_est = 0.0f; // mechanical rotor angular velocity
+static float omega_ref;
 static enum motor_mode_t motor_mode = MOTOR_MODE_DISABLED;
 
 // double-buffered phase output
@@ -94,12 +95,12 @@ static float ekf_cov[2][15];
 
 // EKF parameters
 static const float R_s = 0.102f;
-static const float L_d = 45*1e-6f;
-static const float L_q = 70*1e-6f;
+static const float L_d = 50*1e-6f;
+static const float L_q = 75*1e-6f;
 static const float K_v = 362.0f;
 static const float J = 0.00003f;
 static const float N_P = 7.0f;
-static const float i_noise = 0.01f;
+static const float i_noise = 0.007f;
 static const float u_noise = 0.6f;
 static const float T_l_pnoise = 0.01f;
 
@@ -348,40 +349,62 @@ void motor_update_state(float dt, struct adc_sample_s* adc_sample)
     update_estimates(dt);
 }
 
-void motor_run_commutation(float dt)
+static void run_foc(float dt)
 {
     load_pid_configs();
 
-    id_pid_param.dt = iq_pid_param.dt  = dt;
+    id_pid_param.dt = iq_pid_param.dt = dt;
 
     id_pid_param.i_meas = id_meas;
     iq_pid_param.i_meas = iq_meas;
 
+    float u_alpha, u_beta;
+    bool overmodulation = false;
+
+    id_pid_param.i_ref = 0.0f;
+    if (overmodulation) {
+        id_pid_param.output_limit = vbatt_m*sqrtf(2.0f/3.0f);
+    } else {
+        id_pid_param.output_limit = vbatt_m/sqrtf(2.0f);
+    }
+
+    curr_pid_run(&id_pid_param, &id_pid_state);
+
+    // limit iq such that driving id to zero always takes precedence
+    iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0));
+    curr_pid_run(&iq_pid_param, &iq_pid_state);
+
+    transform_d_q_to_alpha_beta(elec_theta_est, id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
+
+    set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
+}
+
+static float omega_err_filtered;
+static float omega_integrator;
+
+void motor_run_commutation(float dt)
+{
     float u_alpha, u_beta;
     switch (motor_mode) {
         case MOTOR_MODE_DISABLED:
             set_alpha_beta_output_duty(0, 0, 0);
             break;
 
-        case MOTOR_MODE_FOC_CURRENT: {
-            bool overmodulation = false;
-            id_pid_param.i_ref = 0.0f;
-            if (overmodulation) {
-                id_pid_param.output_limit = vbatt_m*sqrtf(2.0f/3.0f);
-            } else {
-                id_pid_param.output_limit = vbatt_m/sqrtf(2.0f);
-            }
-            curr_pid_run(&id_pid_param, &id_pid_state);
-
-            // limit iq such that driving id to zero always takes precedence
-            iq_pid_param.output_limit = sqrtf(MAX(SQ(id_pid_param.output_limit)-SQ(id_pid_state.output),0));
-            curr_pid_run(&iq_pid_param, &iq_pid_state);
-
-            transform_d_q_to_alpha_beta(elec_theta_est, id_pid_state.output, iq_pid_state.output, &u_alpha, &u_beta);
-
-            set_alpha_beta_output_duty(u_alpha/vbatt_m, u_beta/vbatt_m, elec_omega_est);
+        case MOTOR_MODE_SPEED_CONTROL: {
+            const float tc = 0.005f;
+            const float alpha = dt/(dt+tc);
+            omega_err_filtered += (omega_ref-elec_omega_est/mot_n_poles - omega_err_filtered) * alpha;
+            omega_integrator += omega_err_filtered * 500.0f * dt;
+            omega_integrator = constrain_float(omega_integrator,-20.0f,20.0f);
+            iq_pid_param.i_ref = constrain_float(omega_err_filtered*0.5f, -20, 20) + omega_integrator;
+            run_foc(dt);
             break;
         }
+
+        case MOTOR_MODE_FOC_CURRENT:
+            run_foc(dt);
+            break;
+
         case MOTOR_MODE_ENCODER_CALIBRATION: {
             float t = (micros() - encoder_calibration_state.start_time_us)*1.0e-6f;
             float theta = 0.0f;
@@ -474,11 +497,16 @@ void motor_set_mode(enum motor_mode_t new_mode)
     id_pid_param.i_ref = 0.0f;
     iq_pid_param.i_ref = 0.0f;
 
-    if (new_mode == MOTOR_MODE_FOC_CURRENT) {
+    if (new_mode == MOTOR_MODE_FOC_CURRENT || new_mode == MOTOR_MODE_SPEED_CONTROL) {
         ekf_init(0);
     }
 
     motor_mode = new_mode;
+}
+
+void motor_set_omega_ref(float val)
+{
+    omega_ref = val;
 }
 
 void motor_set_iq_ref(float iq_ref)

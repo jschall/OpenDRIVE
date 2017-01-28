@@ -24,6 +24,7 @@ enum motor_mode_t {
     MOTOR_MODE_FOC_CURRENT,
     MOTOR_MODE_ENCODER_CALIBRATION,
     MOTOR_MODE_PHASE_VOLTAGE_TEST,
+    MOTOR_MODE_SPEED_CONTROL
 };
 
 void motor_init(void);
@@ -31,6 +32,7 @@ void motor_update_state(float dt, struct adc_sample_s* adc_sample);
 void motor_run_commutation(float dt);
 void motor_set_mode(enum motor_mode_t mode);
 void motor_set_iq_ref(float id_ref);
+void motor_set_omega_ref(float val);
 enum motor_mode_t motor_get_mode(void);
 float motor_get_phys_rotor_angle(void);
 float motor_get_phys_rotor_ang_vel(void);

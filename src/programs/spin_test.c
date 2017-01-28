@@ -35,8 +35,8 @@ void program_init(void) {
 }
 
 void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
-    uint32_t tnow = micros();
-    float t = (tnow-tbegin_us)*1.0e-6f;
+    uint32_t tnow_us = micros();
+    float t = (tnow_us-tbegin_us)*1.0e-6f;
 
     if (motor_get_mode() == MOTOR_MODE_DISABLED && !waiting_to_start && !started) {
         waiting_to_start = true;
@@ -47,7 +47,7 @@ void program_event_adc_sample(float dt, struct adc_sample_s* adc_sample) {
         motor_set_mode(MOTOR_MODE_FOC_CURRENT);
     }
 
-    motor_set_iq_ref(5.0f);
+    motor_set_iq_ref(3.0f);
     motor_update_state(dt, adc_sample);
     motor_run_commutation(dt);
     motor_update_ekf(dt);
