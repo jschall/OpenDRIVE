@@ -54,6 +54,27 @@ R_ab_dq = lambda theta: Matrix([[ cos(theta), sin(theta)],
                                 [-sin(theta), cos(theta)]])
 R_dq_ab = lambda theta: R_ab_dq(theta).T
 
+def get_analytical_current_integration():
+    global R_s, L_q, L_d, omega_e_est, lambda_r, u_d, u_q, dt
+
+    i_dq_0 = Matrix([i_d_est, i_q_est])
+
+    A = Matrix([[        -R_s/L_d, L_q*omega_e_est/L_d],
+                [-L_d*omega_e_est/L_q, -R_s/L_q       ]])
+
+    g = Matrix([u_d/L_d, -lambda_r*omega_e_est/L_q + u_q/L_q])
+
+    eigenval1 = A.eigenvects()[0][0]
+    eigenvec1 = A.eigenvects()[0][2][0]
+
+    eigenval2 = A.eigenvects()[1][0]
+    eigenvec2 = A.eigenvects()[1][2][0]
+
+    a,b = symbols('a b')
+    soln = (a*exp(eigenval1*dt)*eigenvec1 + b*exp(eigenval2*dt)*eigenvec2).subs(solve(a*exp(eigenval1*0)*eigenvec1 + b*exp(eigenval2*0)*eigenvec2 - A.inv()*g - i_dq_0, [a,b]))-A.inv()*g
+
+    return simplify(soln)
+
 # f: state-transtition model
 #next_theta_e = theta_e_est + dt*omega_e_est
 u_dq = R_ab_dq(theta_e_est) * u_ab
@@ -66,10 +87,11 @@ i_q_dot = (-L_d*omega_e_est*i_d_est - R_s*i_q_est - lambda_r*omega_e_est + u_q)/
 f = Matrix([
     [omega_r_est + dt*(i_q_est*K_t/J + (L_d-L_q)*i_q_est*i_d_est - T_l_est/J)],
     [theta_e_est + dt*omega_e_est],
-    [i_d_est + dt*i_d_dot],
-    [i_q_est + dt*i_q_dot],
+    [0],
+    [0],
     [T_l_est]
     ])
+f[2:4,0] = get_analytical_current_integration()
 assert f.shape == x.shape
 
 # F: linearized state-transition model, AKA "A" in literature
