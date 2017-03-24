@@ -1,5 +1,6 @@
 from sympy import *
 from sympy.physics.vector import dynamicsymbols
+import sys
 
 def copy_upper_to_lower_offdiagonals(M):
     assert isinstance(M,MatrixBase) and M.rows == M.cols
@@ -31,9 +32,13 @@ lambda_m = Symbol('lambda_m')
 omega_e = Symbol('omega_e')
 L_so, L_sl, L_x = symbols('L_so L_sl L_x')
 R_s = Symbol('R_s')
+N_P = Symbol('N_P')
 t = Symbol('t')
 lambda_dqo_sym = Matrix(dynamicsymbols('lambda_d lambda_q lambda_o'))
+V_dqo_sym = Matrix(symbols('V_d V_q V_o'))
 I_dqo_sym = Matrix(dynamicsymbols('I_d I_q I_o'))
+L_dqo_sym = Matrix(symbols('L_d L_q L_o'))
+
 
 # 2.13 .. 2.15
 lambda_m_abc = Matrix([
@@ -66,9 +71,19 @@ V_dqo = simplify(T_abc_dqo * V_abc)
 pprint(collect(collect(V_dqo[0], diff(I_dqo_sym[0], t)), I_dqo_sym[1]*diff(theta_e,t)))
 pprint(collect(collect(V_dqo[1], diff(I_dqo_sym[1], t)), I_dqo_sym[0]*diff(theta_e,t)))
 #I_dqo = T_abc_dqo * I_abc
-#lambda_dqo = simplify(T_abc_dqo * lambda_abc)
+lambda_dqo = simplify(T_abc_dqo * lambda_abc)
 
-##L_dq_sym = Matrix(symbols('L_d L_q'))
+pprint(collect(lambda_dqo[0], I_dqo_sym[0]))
+pprint(collect(lambda_dqo[1], I_dqo_sym[1]))
+
+V_abc = T_dqo_abc*V_dqo_sym
+I_abc = T_dqo_abc*I_dqo_sym
+
+P_o = -omega_e*lambda_dqo[1]*I_dqo_sym[0] + omega_e*lambda_dqo[0]*I_dqo_sym[1]
+T = N_P * P_o/omega_e
+T = T.subs(L_x, (L_dqo_sym[1]-L_dqo_sym[0])/2)
+pprint(simplify(T))
+
 ##pprint(simplify(solve([L_dq_sym[0]*I_dqo[0]+lambda_m-lambda_dqo[0], L_dq_sym[1]*I_dqo[1]-lambda_dqo[1]], L_dq_sym)))
 
 ##V_dqo = V_dqo.subs(dict(zip([3*(L_so+L_x)/2+L_sl, 3*(L_so-L_x)/2+L_sl],L_dq_sym)))
