@@ -14,6 +14,9 @@ def copy_upper_to_lower_offdiagonals(M):
     return ret
 
 theta_e = dynamicsymbols('theta_e')
+theta_e_dot = dynamicsymbols('theta_e',1)
+omega_e = dynamicsymbols('omega_e')
+
 
 T_abc_aby = sqrt(2)/sqrt(3)*Matrix([[ S.One     , -S.Half   , -S.Half    ],
                                     [ S.Zero    , sqrt(3)/2 , -sqrt(3)/2 ],
@@ -37,6 +40,7 @@ t = Symbol('t')
 lambda_dqo_sym = Matrix(dynamicsymbols('lambda_d lambda_q lambda_o'))
 V_dqo_sym = Matrix(symbols('V_d V_q V_o'))
 I_dqo_sym = Matrix(dynamicsymbols('I_d I_q I_o'))
+I_dqo_dot_sym = Matrix(dynamicsymbols('I_d I_q I_o', 1))
 L_dqo_sym = Matrix(symbols('L_d L_q L_o'))
 
 
@@ -66,32 +70,27 @@ lambda_abc = lambda_abc.subs(dict(zip(I_abc, T_dqo_abc*I_dqo_sym)))
 V_abc = R_s * I_abc + diff(lambda_abc,t)
 V_abc = V_abc.subs(dict(zip(I_abc, T_dqo_abc*I_dqo_sym)))
 
-V_dqo = simplify(T_abc_dqo * V_abc)
+# put V_dqo in terms of L_d and L_q
+V_dqo = simplify(T_abc_dqo * V_abc).as_mutable()
+V_dqo[0] = collect(collect(V_dqo[0], I_dqo_dot_sym[0]), I_dqo_sym[1]*diff(theta_e,t))
+V_dqo[1] = collect(collect(V_dqo[1], I_dqo_dot_sym[1]), I_dqo_sym[0]*diff(theta_e,t))
+V_dqo = V_dqo.subs([(L_sl+3*L_so/2+3*L_x/2, L_dqo_sym[0]), (L_sl+3*L_so/2-3*L_x/2, L_dqo_sym[1]), (theta_e_dot, omega_e)])
 
-pprint(collect(collect(V_dqo[0], diff(I_dqo_sym[0], t)), I_dqo_sym[1]*diff(theta_e,t)))
-pprint(collect(collect(V_dqo[1], diff(I_dqo_sym[1], t)), I_dqo_sym[0]*diff(theta_e,t)))
-#I_dqo = T_abc_dqo * I_abc
+# solve for I_dqo_dot
+I_dqo_dot_soln = solve(V_dqo-V_dqo_sym, I_dqo_dot_sym)
+I_dqo_dot = Matrix([I_dqo_dot_soln[k] for k in I_dqo_dot_sym])
+
+# solve for torque
 lambda_dqo = simplify(T_abc_dqo * lambda_abc)
-
-pprint(collect(lambda_dqo[0], I_dqo_sym[0]))
-pprint(collect(lambda_dqo[1], I_dqo_sym[1]))
-
-V_abc = T_dqo_abc*V_dqo_sym
-I_abc = T_dqo_abc*I_dqo_sym
-
 P_o = -omega_e*lambda_dqo[1]*I_dqo_sym[0] + omega_e*lambda_dqo[0]*I_dqo_sym[1]
 T = N_P * P_o/omega_e
-T = T.subs(L_x, (L_dqo_sym[1]-L_dqo_sym[0])/2)
-pprint(simplify(T))
+T = simplify(T.subs([(L_x, (L_dqo_sym[1]-L_dqo_sym[0])/2), (theta_e_dot, omega_e)]))
 
-##pprint(simplify(solve([L_dq_sym[0]*I_dqo[0]+lambda_m-lambda_dqo[0], L_dq_sym[1]*I_dqo[1]-lambda_dqo[1]], L_dq_sym)))
+print "\n################## V_dqo ##################"
+pprint(V_dqo)
 
-##V_dqo = V_dqo.subs(dict(zip([3*(L_so+L_x)/2+L_sl, 3*(L_so-L_x)/2+L_sl],L_dq_sym)))
-##V_dqo = V_dqo.subs(dict(zip([3*(L_so+L_x)/2+L_sl, 3*(L_so-L_x)/2+L_sl],L_dq_sym)))
-#pprint(V_dqo[0].subs(3*L_so/2 + 3*L_x/2 + L_sl, 0))
-#pprint(simplify(V_dqo))
+print "\n################ I_dqo_dot ################"
+pprint(I_dqo_dot)
 
-#L_dq_sym = Matrix(symbols('L_d L_q'))
-#L_dq = Matrix([L_so-L_x, L_so+L_x])
-
-#pprint(solve(L_dq-L_dq_sym, [L_so, L_sl, L_x]))
+print "\n################# Torque #################"
+pprint(T)
