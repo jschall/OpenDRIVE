@@ -24,9 +24,8 @@ lambda_r = Symbol('lambda_r') # Rotor flux linkage
 N_P = Symbol('N_P') # Number of magnetic pole pairs
 J   = Symbol('J')   # Rotor inertia
 T_l_pnoise = Symbol('T_l_pnoise') # Load torque process noise
-i_pnoise = Symbol('i_pnoise') # Current process noise
-omega_pnoise = Symbol('omega_pnoise')
 theta_pnoise = Symbol('theta_pnoise')
+param_1 = Symbol('param_1')
 
 # Inputs
 u_ab = Matrix(symbols('u_alpha u_beta')) # Stator voltages
@@ -93,7 +92,10 @@ Q_u = diag(*w_u_sigma.multiply_elementwise(w_u_sigma))
 
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
-Q += diag(omega_pnoise**2, theta_pnoise**2, 0**2, 0**2, T_l_pnoise**2)
+
+pnoise_sigma = Matrix([param_1, theta_pnoise, 0, 0, T_l_pnoise])*dt
+
+Q += diag(*pnoise_sigma.multiply_elementwise(pnoise_sigma))
 
 # x_p: state vector at time k+1
 x_p = f

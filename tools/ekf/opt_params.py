@@ -37,7 +37,7 @@ def objective_func(x):
     if objective=="RMS_THETA":
         obj = math.sqrt(output_data["theta_ISE"])
     elif objective=="CURRENT_CONSISTENCY":
-        obj = math.sqrt(output_data["int_NIS"])*math.sqrt(output_data["var_int"])*math.sqrt(output_data["theta_ISE"])*math.sqrt(output_data["load_sq_int"])
+        obj = math.sqrt(output_data["int_NIS"])*math.sqrt(output_data["var_int"])*math.sqrt(output_data["theta_ISE"])
 
     print "obj: %f" % (obj,)
 
@@ -70,14 +70,14 @@ param_bounds = {
     "i_noise": (0.001, 0.1),
     "u_noise": (0, 20),
     "T_l_pnoise": (0, 100),
-    "omega_pnoise": (0, 1e6),
-    "theta_pnoise": (0, 1e6),
     "encoder_theta_e_bias": (-math.pi, math.pi),
-    "encoder_delay": (-1e-3,1e-3)
+    "encoder_delay": (-1e-3,1e-3),
+    "theta_pnoise": (0,100),
+    "param_1": (0,1e8)
     }
 
-opt_param_names = ["J", "L_q", "L_d", "R_s", "i_noise", "i_delay", "T_l_pnoise", "encoder_theta_e_bias", "encoder_delay"]
-objective="RMS_THETA"
+opt_param_names = ["J", "L_q", "L_d", "R_s", "lambda_r", "encoder_theta_e_bias", "encoder_delay"]
+objective="CURRENT_CONSISTENCY"
 opt_params = [init_params[x] for x in opt_param_names]
 opt_param_bounds = [param_bounds[x] for x in opt_param_names]
 res = minimize(objective_func, opt_params, bounds=opt_param_bounds, method='Nelder-Mead', options={'maxiter':1000000,'maxfev':1000000})

@@ -20,10 +20,10 @@ static float N_P;
 static float i_noise;
 static float u_noise;
 static float T_l_pnoise;
-static float omega_pnoise;
-static float theta_pnoise;
 static float encoder_theta_e_bias;
 static float encoder_delay;
+static float theta_pnoise;
+static float param_1;
 
 static const struct {
     const char* name;
@@ -38,10 +38,10 @@ static const struct {
     {"i_noise", &i_noise},
     {"u_noise", &u_noise},
     {"T_l_pnoise", &T_l_pnoise},
-    {"omega_pnoise", &omega_pnoise},
-    {"theta_pnoise", &theta_pnoise},
     {"encoder_theta_e_bias", &encoder_theta_e_bias},
-    {"encoder_delay", &encoder_delay}
+    {"encoder_delay", &encoder_delay},
+    {"theta_pnoise", &theta_pnoise},
+    {"param_1", &param_1}
 };
 
 #define N_PARAMS (sizeof(param_info)/sizeof(param_info[0]))
@@ -130,10 +130,11 @@ static void handle_decoded_pkt(uint8_t len, uint8_t* buf, FILE* out_file) {
 //         memset(ekf_state[ekf_idx].P, 0, sizeof(ekf_state[ekf_idx].P));
 
         ekf_predict(pkt->dt, pkt->u_alpha, pkt->u_beta);
-//         ekf_update(pkt->i_alpha_m, pkt->i_beta_m);
+        ekf_update(pkt->i_alpha_m, pkt->i_beta_m);
 
-        ekf_state[ekf_idx].x[1] = pkt->encoder_theta_e;
-        memset(ekf_state[ekf_idx].P, 0, sizeof(ekf_state[ekf_idx].P));
+//         ekf_state[ekf_idx].x[0] = pkt->encoder_omega_e/7;
+//         ekf_state[ekf_idx].x[1] = pkt->encoder_theta_e;
+//         memset(ekf_state[ekf_idx].P, 0, sizeof(ekf_state[ekf_idx].P));
 
     }
 
@@ -256,6 +257,7 @@ int main(int argc, char **argv) {
 
     fprintf(out_file, "],\n");
 //     fprintf(out_file, "\"theta_IAE\": %9g,\n", (double)(theta_e_err_abs_sum/dt_sum));
+    fprintf(out_file, "\"N_P\": %9g,\n", N_P);
     fprintf(out_file, "\"int_NIS\": %9g,\n", int_NIS);
     fprintf(out_file, "\"theta_ISE\": %9g,\n", ISE);
     fprintf(out_file, "\"var_int\": %9g,\n", var_int);
