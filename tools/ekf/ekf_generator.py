@@ -27,11 +27,6 @@ T_l_pnoise = Symbol('T_l_pnoise') # Load torque process noise
 i_pnoise = Symbol('i_pnoise') # Current process noise
 omega_pnoise = Symbol('omega_pnoise')
 theta_pnoise = Symbol('theta_pnoise')
-i_delay = Symbol('i_delay')
-
-i0 = Symbol('i0')
-a = Symbol('a')
-b = Symbol('b')
 
 # Inputs
 u_ab = Matrix(symbols('u_alpha u_beta')) # Stator voltages
@@ -63,7 +58,7 @@ u_dq = R_ab_dq(theta_e_est) * u_ab
 u_d = u_dq[0]
 u_q = u_dq[1]
 
-T_output = Rational(3,2) * N_P * (lambda_r*i_q_est + (L_d-L_q)*i_q_est*i_d_est)
+T_output = Rational(3,2) * N_P * (lambda_r + (L_d-L_q)*i_d_est) * i_q_est
 omega_dot = (T_output - T_l_est)/J
 
 i_d_dot = (L_q*omega_e_est*i_q_est - R_s*i_d_est + u_d)/L_d
@@ -100,17 +95,13 @@ Q_u = diag(*w_u_sigma.multiply_elementwise(w_u_sigma))
 Q = G*Q_u*G.T
 Q += diag(omega_pnoise**2, theta_pnoise**2, 0**2, 0**2, T_l_pnoise**2)
 
+# x_p: state vector at time k+1
 x_p = f
-x_at_curr_meas = x+(dt-i_delay)*x_dot
 
 # P_p: covariance matrix at time k+1
 P_p = F*P*F.T + Q
 assert P_p.shape == P.shape
 P_p = upperTriangularToVec(P_p)
-
-#x_at_curr_meas = x_at_curr_meas.xreplace(subs)
-#x_p = x_p.xreplace(subs)
-#P_p = P_p.xreplace(subs)
 
 # h: predicted measurement
 h = zeros(2,1)
@@ -146,12 +137,8 @@ x_n = x + K*y
 P_n = (I-K*H)*P
 P_n = upperTriangularToVec(P_n)
 
-#x_n = x_n.xreplace(subs)
-#P_n = P_n.xreplace(subs)
-#NIS = NIS.xreplace(subs)
-
 # Generate code
-x_p,P_p,x_at_curr_meas,pred_subx = extractSubexpressions([x_p,P_p,x_at_curr_meas],'subx',threshold=5)
+x_p,P_p,pred_subx = extractSubexpressions([x_p,P_p],'subx',threshold=5)
 
 x_n,P_n,NIS,fuse_subx = extractSubexpressions([x_n,P_n,NIS],'subx',threshold=5)
 
@@ -175,7 +162,6 @@ sys.stdout.write(
 '\n'
 'static struct ekf_state_s ekf_state[2];\n'
 'static uint8_t ekf_idx = 0;\n'
-'static FTYPE x_at_curr_meas[5];'
 '\n'
 'static void ekf_init(FTYPE init_theta) {\n'
 '    FTYPE* state = ekf_state[ekf_idx].x;\n'
@@ -210,9 +196,6 @@ for i in range(len(pred_subx)):
 for i in range(len(x_p)):
     sys.stdout.write('    state_n[%u] = %s;\n' % (i, CCodePrinter().doprint(x_p[i])))
 
-for i in range(len(x_at_curr_meas)):
-    sys.stdout.write('    x_at_curr_meas[%u] = %s;\n' % (i, CCodePrinter().doprint(x_at_curr_meas[i])))
-
 for i in range(len(P_p)):
     sys.stdout.write('    cov_n[%u] = %s;\n' % (i, CCodePrinter().doprint(P_p[i])))
 
@@ -227,7 +210,7 @@ sys.stdout.write(
 '\n'
 'static void ekf_update(FTYPE i_alpha_m, FTYPE i_beta_m) {\n'
 '    uint8_t next_ekf_idx = (ekf_idx+1)%2;\n'
-'    FTYPE* state = x_at_curr_meas;\n'
+'    FTYPE* state = ekf_state[ekf_idx].x;\n'
 '    FTYPE* cov = ekf_state[ekf_idx].P;\n'
 '    FTYPE* state_n = ekf_state[next_ekf_idx].x;\n'
 '    FTYPE* cov_n = ekf_state[next_ekf_idx].P;\n'

@@ -15,7 +15,7 @@ def objective_func(x):
     for i in range(len(x)):
         params[opt_param_names[i]] = x[i]
 
-    params['L_d'] = params['L_q']*.682
+    #params['L_d'] = params['L_q']*.682
 
     print params
 
@@ -37,7 +37,7 @@ def objective_func(x):
     if objective=="RMS_THETA":
         obj = math.sqrt(output_data["theta_ISE"])
     elif objective=="CURRENT_CONSISTENCY":
-        obj = math.sqrt(output_data["int_NIS"])*math.sqrt(output_data["var_int"])*math.sqrt(output_data["theta_ISE"])
+        obj = math.sqrt(output_data["int_NIS"])*math.sqrt(output_data["var_int"])*math.sqrt(output_data["theta_ISE"])*math.sqrt(output_data["load_sq_int"])
 
     print "obj: %f" % (obj,)
 
@@ -73,14 +73,10 @@ param_bounds = {
     "omega_pnoise": (0, 1e6),
     "theta_pnoise": (0, 1e6),
     "encoder_theta_e_bias": (-math.pi, math.pi),
-    "i_delay": (-1e-4,1e-4),
-    "encoder_delay": (-1e-3,1e-3),
-    "i0": (0,10000),
-    "a": (0, 10000),
-    "b": (0, 10000),
+    "encoder_delay": (-1e-3,1e-3)
     }
 
-opt_param_names = ["J", "L_q", "i_noise", "lambda_r", "T_l_pnoise", "encoder_theta_e_bias", "encoder_delay"]
+opt_param_names = ["J", "L_q", "L_d", "R_s", "i_noise", "i_delay", "T_l_pnoise", "encoder_theta_e_bias", "encoder_delay"]
 objective="RMS_THETA"
 opt_params = [init_params[x] for x in opt_param_names]
 opt_param_bounds = [param_bounds[x] for x in opt_param_names]
