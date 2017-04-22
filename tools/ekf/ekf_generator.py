@@ -24,8 +24,7 @@ lambda_r = Symbol('lambda_r') # Rotor flux linkage
 N_P = Symbol('N_P') # Number of magnetic pole pairs
 J   = Symbol('J')   # Rotor inertia
 T_l_pnoise = Symbol('T_l_pnoise') # Load torque process noise
-theta_pnoise = Symbol('theta_pnoise')
-param_1 = Symbol('param_1')
+omega_pnoise = Symbol('omega_pnoise')
 
 # Inputs
 u_ab = Matrix(symbols('u_alpha u_beta')) # Stator voltages
@@ -93,7 +92,7 @@ Q_u = diag(*w_u_sigma.multiply_elementwise(w_u_sigma))
 # Q: covariance of additive noise on x
 Q = G*Q_u*G.T
 
-pnoise_sigma = Matrix([param_1, theta_pnoise, 0, 0, T_l_pnoise])*dt
+pnoise_sigma = Matrix([omega_pnoise, 0, 0, 0, T_l_pnoise])*dt
 
 Q += diag(*pnoise_sigma.multiply_elementwise(pnoise_sigma))
 
@@ -203,6 +202,7 @@ for i in range(len(P_p)):
 
 sys.stdout.write(
 '\n'
+'    ekf_state[next_ekf_idx].NIS = ekf_state[ekf_idx].NIS;\n'
 '    state_n[1] = wrap_2pi(state_n[1]);\n'
 '    ekf_idx = next_ekf_idx;\n'
 '}\n'

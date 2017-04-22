@@ -22,8 +22,7 @@ static float u_noise;
 static float T_l_pnoise;
 static float encoder_theta_e_bias;
 static float encoder_delay;
-static float theta_pnoise;
-static float param_1;
+static float omega_pnoise;
 
 static const struct {
     const char* name;
@@ -40,8 +39,7 @@ static const struct {
     {"T_l_pnoise", &T_l_pnoise},
     {"encoder_theta_e_bias", &encoder_theta_e_bias},
     {"encoder_delay", &encoder_delay},
-    {"theta_pnoise", &theta_pnoise},
-    {"param_1", &param_1}
+    {"omega_pnoise", &omega_pnoise},
 };
 
 #define N_PARAMS (sizeof(param_info)/sizeof(param_info[0]))
@@ -156,7 +154,7 @@ static void handle_decoded_pkt(uint8_t len, uint8_t* buf, FILE* out_file) {
 
 
 
-    if (pkt->tnow_us > 1e6) {
+//     if (pkt->tnow_us > 1e6) {
         load_torque_sq_sum += SQ(x[4]);
         theta_e_err_abs_sum += fabsf(theta_e_err);
         theta_e_err_sq_sum += SQ(theta_e_err);
@@ -167,7 +165,7 @@ static void handle_decoded_pkt(uint8_t len, uint8_t* buf, FILE* out_file) {
         variance_sum += P[9]+P[12];
 //         variance_sum += P[14];
         dt_sum += pkt->dt;
-    }
+//     }
 #ifndef NO_BULK_DATA
     fprintf(out_file, "{\"t_us\":%u, \"dt\":%9g, \"encoder_theta_e\":%9g, \"encoder_omega_e\":%9g, \"i_alpha_m\":%9g, \"i_beta_m\":%9g, \"u_alpha\":%9g, \"u_beta\":%9g, \"x\":[%9g, %9g, %9g, %9g, %9g], \"P\": [%9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g, %9g], \"theta_e_err\":%9g, \"omega_e_est\":%9g, \"omega_e_err\":%9g, \"i_d_m\": %9g, \"i_q_m\": %9g, \"NIS\": %9g}", pkt->tnow_us, pkt->dt, pkt->encoder_theta_e, pkt->encoder_omega_e, pkt->i_alpha_m, pkt->i_beta_m, pkt->u_alpha, pkt->u_beta, x[0], x[1], x[2], x[3], x[4], P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], P[8], P[9], P[10], P[11], P[12], P[13], P[14], theta_e_err, omega_e_est, omega_e_err, i_d_m, i_q_m, NIS);
 #endif
