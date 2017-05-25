@@ -13,7 +13,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <esc/timing.h>
+#include "timing.h"
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/cm3/systick.h>
 

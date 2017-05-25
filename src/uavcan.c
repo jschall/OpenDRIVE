@@ -1,8 +1,7 @@
-#include <esc/uavcan.h>
-#include <esc/can.h>
-#include <esc/timing.h>
-#include <esc/helpers.h>
-#include <esc/param.h>
+#include "uavcan.h"
+#include "can.h"
+#include "timing.h"
+#include "helpers.h"
 #include <stdlib.h>
 #include <string.h>
 #include <canard.h>
@@ -31,16 +30,6 @@
 #define UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE                    0xee468a8121c46a9e
 #define UAVCAN_GET_NODE_INFO_DATA_TYPE_ID                           1
 
-#define UAVCAN_PARAM_GETSET_REQUEST_MAX_SIZE                        BIT_LEN_TO_SIZE(1791)
-#define UAVCAN_PARAM_GETSET_RESPONSE_MAX_SIZE                       BIT_LEN_TO_SIZE(2967)
-#define UAVCAN_PARAM_GETSET_DATA_TYPE_ID                            11
-#define UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE                     0xa7b622f939d1a4d5
-
-#define UAVCAN_PARAM_EXECUTE_OPCODE_REQUEST_MAX_SIZE                BIT_LEN_TO_SIZE(56)
-#define UAVCAN_PARAM_EXECUTE_OPCODE_RESPONSE_MAX_SIZE               BIT_LEN_TO_SIZE(49)
-#define UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_ID                    10
-#define UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_SIGNATURE             0x3b131ac5eb69d2cd
-
 #define UAVCAN_RESTARTNODE_REQUEST_MAX_SIZE                         BIT_LEN_TO_SIZE(40)
 #define UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE                        BIT_LEN_TO_SIZE(1)
 #define UAVCAN_RESTARTNODE_DATA_TYPE_ID                             5
@@ -57,8 +46,6 @@
 #define UAVCAN_ESC_RAWCOMMAND_MESSAGE_MAX_SIZE                      BIT_LEN_TO_SIZE(285)
 #define UAVCAN_ESC_RAWCOMMAND_DATA_TYPE_ID                          1030
 #define UAVCAN_ESC_RAWCOMMAND_DATA_TYPE_SIGNATURE                   0x217f5c87d7ec951d
-
-#define UAVCAN_PARAM_VALUE_FLOAT_SIZE                               5
 
 #define UAVCAN_NODE_HEALTH_OK                                       0
 #define UAVCAN_NODE_HEALTH_WARNING                                  1
@@ -108,7 +95,6 @@ void uavcan_init(void)
 {
     desig_get_unique_id((uint32_t*)&node_unique_id[0]);
     canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer);
-    canardSetLocalNodeID(&canard, *param_retrieve_by_name("uavcan.node_id"));
     allocation_init();
 }
 
@@ -345,158 +331,6 @@ static void handle_restart_node_request(CanardInstance* ins, CanardRxTransfer* t
     canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_RESTARTNODE_DATA_TYPE_SIGNATURE, UAVCAN_RESTARTNODE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE);
 }
 
-static void handle_param_opcode_request(CanardInstance* ins, CanardRxTransfer* transfer)
-{
-    static const uint8_t OK = 1;
-    uint8_t resp_buf[UAVCAN_PARAM_EXECUTE_OPCODE_RESPONSE_MAX_SIZE];
-    uint8_t opcode;
-    canardDecodeScalar(transfer, 0, 8, false, &opcode);
-    memset(resp_buf, 0, sizeof(resp_buf));
-
-    switch(opcode) {
-        case 0:
-            param_write();
-            canardEncodeScalar(resp_buf, 48, 1, &OK);
-            break;
-        case 1:
-            param_erase();
-            canardEncodeScalar(resp_buf, 48, 1, &OK);
-            break;
-    }
-
-    canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_SIGNATURE, UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_PARAM_EXECUTE_OPCODE_RESPONSE_MAX_SIZE);
-}
-
-static void handle_param_getset_request(CanardInstance* ins, CanardRxTransfer* transfer)
-{
-    int16_t param_idx;
-    uint8_t value_type;
-    uint8_t value_len;
-    uint8_t i;
-    char param_name[PARAM_MAX_NAME_LEN+1];
-    size_t param_name_len;
-    uint8_t resp_buf[UAVCAN_PARAM_GETSET_RESPONSE_MAX_SIZE];
-    size_t resp_len = 0;
-    memset(param_name, 0, sizeof(param_name));
-
-    canardDecodeScalar(transfer, 0, 13, false, &param_idx);
-    canardDecodeScalar(transfer, 13, 3, false, &value_type);
-    switch(value_type) {
-        case 0: // Empty
-            value_len = 0;
-            break;
-        case 1: // int64
-            value_len = 8;
-            break;
-        case 2: // float32
-            value_len = 4;
-            break;
-        case 3: // uint8
-            value_len = 1;
-            break;
-        case 4: // string
-            canardDecodeScalar(transfer, 16, 8, false, &value_len);
-            value_len++; // including length byte
-            break;
-    }
-
-    param_name_len = transfer->payload_len - value_len - 2;
-
-    if (param_name_len > PARAM_MAX_NAME_LEN) {
-        // Something went wrong
-        return;
-    }
-
-    if (param_name_len > 0) {
-        // Read in the name if it is not empty
-        for (i=0; i<param_name_len; i++) {
-            canardDecodeScalar(transfer, 16+value_len*8+i*8, 8, false, &param_name[i]);
-        }
-
-        // If the name field is not empty, we are to prefer it over the param index field
-        param_idx = param_get_index_by_name(param_name);
-    }
-
-    if (param_idx >= 0 && param_idx < param_get_num_params()) {
-        // Param exists
-        if (value_type == 2) {
-            // Set request - attempt to set parameter
-            float val;
-            canardDecodeScalar(transfer, 16, 32, true, &val);
-            *param_retrieve_by_index(param_idx) = val;
-        } else if (value_type == 1) {
-            int64_t val;
-            canardDecodeScalar(transfer, 16, 64, true, &val);
-            *param_retrieve_by_index(param_idx) = (float)val;
-        }
-
-        float* param_val = param_retrieve_by_index(param_idx);
-        const struct param_info_s* param_info;
-        param_get_info_by_index(param_idx, &param_info);
-
-        size_t resp_name_len = strlen(param_info->name);
-
-        switch(param_info->type) {
-            case PARAM_TYPE_FLOAT: {
-                // respond with the param name and value
-                resp_buf[0] = 2; // param type
-                memcpy(&resp_buf[1], param_val, sizeof(float)); // param value
-                resp_buf[5] = 2; // param default value
-                memcpy(&resp_buf[6], &param_info->default_val, sizeof(float));
-                resp_buf[10] = 2; // param max value
-                memcpy(&resp_buf[11], &param_info->max_val, sizeof(float));
-                resp_buf[15] = 2; // param min value
-                memcpy(&resp_buf[16], &param_info->min_val, sizeof(float));
-                memcpy(&resp_buf[20], param_info->name, resp_name_len); // param name
-                resp_len = resp_name_len+20;
-                break;
-            }
-            case PARAM_TYPE_INT: {
-                // respond with the param name and value
-                int64_t temp;
-                resp_buf[0] = 1; // param type
-                temp = (int64_t)*param_val;
-                memcpy(&resp_buf[1], &temp, sizeof(int64_t));
-                resp_buf[9] = 1; // param default value
-                temp = (int64_t)param_info->default_val;
-                memcpy(&resp_buf[10], &temp, sizeof(int64_t));
-                resp_buf[18] = 1; // param max value
-                temp = (int64_t)param_info->max_val;
-                memcpy(&resp_buf[19], &temp, sizeof(int64_t));
-                resp_buf[27] = 1; // param min value
-                temp = (int64_t)param_info->min_val;
-                memcpy(&resp_buf[28], &temp, sizeof(int64_t));
-                memcpy(&resp_buf[36], param_info->name, resp_name_len); // param name
-                resp_len = resp_name_len+36;
-                break;
-            }
-            case PARAM_TYPE_BOOL: {
-                bool temp;
-                resp_buf[0] = 3; // param type
-                temp = (bool)*param_val;
-                memcpy(&resp_buf[1], &temp, sizeof(bool));
-                resp_buf[2] = 3; // param default value
-                temp = (bool)param_info->default_val;
-                memcpy(&resp_buf[3], &temp, sizeof(bool));
-                resp_buf[4] = 0; // param max value
-                resp_buf[5] = 0; // param min value
-                memcpy(&resp_buf[6], param_info->name, resp_name_len); // param name
-                resp_len = resp_name_len+6;
-                break;
-            }
-        };
-    }  else {
-        // Param does not exist, send an empty response per the spec
-        resp_buf[0] = 0; // param type
-        resp_buf[1] = 0; // param default value
-        resp_buf[2] = 0; // param max value
-        resp_buf[3] = 0; // param min value
-        resp_len = 4;
-    }
-
-    canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE, UAVCAN_PARAM_GETSET_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, resp_len);
-}
-
 static void handle_esc_rawcommand_message(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     UNUSED(ins);
@@ -519,10 +353,6 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
         handle_allocation_data_broadcast(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_GET_NODE_INFO_DATA_TYPE_ID) {
         handle_get_node_info_request(ins, transfer);
-    } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_PARAM_GETSET_DATA_TYPE_ID) {
-        handle_param_getset_request(ins, transfer);
-    } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_ID) {
-        handle_param_opcode_request(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_RESTARTNODE_DATA_TYPE_ID) {
         handle_restart_node_request(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeBroadcast && transfer->data_type_id == UAVCAN_ESC_RAWCOMMAND_DATA_TYPE_ID) {
@@ -563,18 +393,6 @@ static bool shouldAcceptTransfer(const CanardInstance* ins, uint64_t* out_data_t
     if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_GET_NODE_INFO_DATA_TYPE_ID)
     {
         *out_data_type_signature = UAVCAN_GET_NODE_INFO_DATA_TYPE_SIGNATURE;
-        return true;
-    }
-
-    if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_PARAM_GETSET_DATA_TYPE_ID)
-    {
-        *out_data_type_signature = UAVCAN_PARAM_GETSET_DATA_TYPE_SIGNATURE;
-        return true;
-    }
-
-    if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_ID)
-    {
-        *out_data_type_signature = UAVCAN_PARAM_EXECUTE_OPCODE_DATA_TYPE_SIGNATURE;
         return true;
     }
 

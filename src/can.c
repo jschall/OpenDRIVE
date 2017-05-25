@@ -13,12 +13,12 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <esc/ringbuf.h>
+#include "ringbuf.h"
 
 #include <libopencm3/stm32/can.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
-#include <esc/can.h>
+#include "can.h"
 
 void canbus_init(void) {
     // Enable peripheral clock

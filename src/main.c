@@ -13,20 +13,43 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
-
 #include <stdint.h>
 #include <stdbool.h>
+#include "timing.h"
+#include "init.h"
+#include "can.h"
+#include "uavcan.h"
+#include <libopencm3/cm3/scb.h>
 
-void drv_init(void);
-uint16_t drv_read_register(uint8_t reg);
-void drv_write_register(uint8_t reg, uint16_t val);
-void drv_write_register_bits(uint8_t reg, uint8_t rng_begin, uint8_t rng_end, uint16_t val);
-void drv_print_register(uint8_t reg);
-void drv_print_faults(void);
-bool drv_get_fault(void);
-void drv_csa_cal_mode_on(void);
-void drv_csa_cal_mode_off(void);
-void drv_6_pwm_mode(void);
-void drv_3_pwm_mode(void);
-float drv_get_csa_gain(void);
+static bool restart_req = false;
+static uint32_t restart_req_us = 0;
+
+static bool restart_request_handler(void)
+{
+    restart_req = true;
+    restart_req_us = micros();
+    return true;
+}
+
+int main(void)
+{
+    uint32_t last_print_ms = 0;
+
+    clock_init();
+    timing_init();
+    canbus_init();
+    uavcan_init();
+    uavcan_set_restart_cb(restart_request_handler);
+
+    // main loop
+    while(1) {
+        uavcan_update();
+
+        if (restart_req && (micros() - restart_req_us) > 1000) {
+            // reset
+            scb_reset_system();
+        }
+    }
+
+    return 0;
+}
