@@ -94,7 +94,7 @@ static void allocation_start_followup_timer(void);
 void uavcan_init(void)
 {
     desig_get_unique_id((uint32_t*)&node_unique_id[0]);
-    canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer);
+    canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer, NULL);
     allocation_init();
 }
 
