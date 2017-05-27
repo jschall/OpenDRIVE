@@ -12,13 +12,11 @@ LDLIBS := -lopencm3_stm32f3 -lm -Wl,--start-group -lc -lgcc -lrdimon -Wl,--end-g
 CFLAGS += -std=gnu11 -Os -ffast-math -g -Wdouble-promotion -Wextra -Wshadow -Werror=implicit-function-declaration -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes -fsingle-precision-constant -fno-common -ffunction-sections -fdata-sections -MD -Wall -Wundef -Isrc -I$(LIBOPENCM3_DIR)/include -I$(LIBCANARD_DIR) -DSTM32F3 -D"CANARD_ASSERT(x)"="do {} while(0)" -DGIT_HASH=0x$(shell git rev-parse --short=8 HEAD)
 
 COMMON_OBJS := $(addprefix build/,$(addsuffix .o,$(basename $(shell find src -name "*.c"))))
-BIN := build/bin/main.elf
+ELF := build/bin/main.elf
+BIN := build/bin/main.bin
 
 .PHONY: all
 all: $(LIBOPENCM3_DIR) $(BIN)
-
-src/esc/ekf.h src/esc/ekf.c: tools/ekf/ekf_generator.py
-	python tools/ekf/ekf_generator.py src/esc/ekf.h src/esc/ekf.c
 
 build/bin/%.elf: $(COMMON_OBJS) build/canard.o
 	@echo "### BUILDING $@"

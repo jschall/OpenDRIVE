@@ -33,8 +33,6 @@ static bool restart_request_handler(void)
 
 int main(void)
 {
-    uint32_t last_print_ms = 0;
-
     clock_init();
     timing_init();
     canbus_init();
