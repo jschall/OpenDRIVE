@@ -54,21 +54,21 @@ void spi_init(void)
     rcc_periph_clock_enable(RCC_GPIOB);
     rcc_periph_clock_enable(RCC_SPI3);
 
-    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5); // MA700 CS
-    gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO0); // DRV CS
-    gpio_set(GPIOA, GPIO5); // MA700 CS up
-    gpio_set(GPIOB, GPIO0); // DRV CS up
+    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO15); // FLOW CS
+    gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO0); // ICM CS
+    gpio_set(GPIOA, GPIO15); // FLOW CS up
+    gpio_set(GPIOB, GPIO0); // ICM CS up
 
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO3); // SCK
     gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
 
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_4); // 18MHz
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_64); // 1.125MHz - required by FLOW
     spi_set_clock_polarity_1(SPI3);
     spi_set_clock_phase_1(SPI3);
     spi_set_full_duplex_mode(SPI3);
     spi_set_unidirectional_mode(SPI3);
-    spi_set_data_size(SPI3, SPI_CR2_DS_16BIT);
+    spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
     spi_send_msb_first(SPI3);
     spi_enable_software_slave_management(SPI3);
     spi_set_nss_high(SPI3);
