@@ -72,7 +72,7 @@ void spi_init(void)
     spi_send_msb_first(SPI3);
     spi_enable_software_slave_management(SPI3);
     spi_set_nss_high(SPI3);
-    spi_fifo_reception_threshold_16bit(SPI3);
+    spi_fifo_reception_threshold_8bit(SPI3);
     spi_set_master_mode(SPI3);
     spi_enable(SPI3);
 }
