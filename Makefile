@@ -48,7 +48,7 @@ $(LIBOPENCM3_DIR):
 
 upload: build/bin/main.elf build/bin/main.bin
 	@echo "### UPLOADING"
-	@openocd -f openocd.cfg -c "program $< verify reset exit"
+	openocd -f openocd.cfg -c "program $< verify reset exit"
 
 .PHONY: clean
 clean:

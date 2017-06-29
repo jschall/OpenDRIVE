@@ -3,8 +3,8 @@
 /* Define memory regions. */
 MEMORY
 {
-    rom (rx) :          ORIGIN = 0x08000000, LENGTH = 12K
-    app (rx) :          ORIGIN = 0x08003000, LENGTH = 50K
+    bl (rx) :          ORIGIN = 0x08000000, LENGTH = 12K
+    rom (rx) :          ORIGIN = 0x08003000, LENGTH = 50K
     params (rx) :       ORIGIN = 0x0800F800, LENGTH =  2K
     ram (rwx) :         ORIGIN = 0x20000000, LENGTH = 16K-128
     app_bl_shared (rwx) : ORIGIN = 0x20000000+(16K-128), LENGTH = 128
@@ -29,6 +29,9 @@ SECTIONS
 
     .params (NOLOAD) : {
     } >params
+
+    .bl (NOLOAD) : {
+    } >bl
 
     .app_bl_shared (NOLOAD) : {
     } >app_bl_shared

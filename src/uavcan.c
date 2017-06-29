@@ -9,7 +9,7 @@
 
 #define APP_VERSION_MAJOR                                           0
 #define APP_VERSION_MINOR                                           1
-#define APP_NODE_NAME                                               "org.jc.esc"
+#define APP_NODE_NAME                                               "org.jc.simpleapp"
 
 #define BIT_LEN_TO_SIZE(x) ((x+7)/8)
 
