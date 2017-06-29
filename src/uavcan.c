@@ -9,7 +9,7 @@
 
 #define APP_VERSION_MAJOR                                           0
 #define APP_VERSION_MINOR                                           1
-#define APP_NODE_NAME                                               "org.jc.esc"
+#define APP_NODE_NAME                                               "org.jc.bl"
 
 #define BIT_LEN_TO_SIZE(x) ((x+7)/8)
 
@@ -50,6 +50,11 @@
 #define UAVCAN_DEBUG_LOGMESSAGE_MESSAGE_MAX_SIZE                    BIT_LEN_TO_SIZE(983)
 #define UAVCAN_DEBUG_LOGMESSAGE_DATA_TYPE_ID                        16383
 #define UAVCAN_DEBUG_LOGMESSAGE_DATA_TYPE_SIGNATURE                 0xd654a48e0c049d75
+
+#define UAVCAN_FILE_BEGINFIRMWAREUPDATE_REQUEST_MAX_SIZE            BIT_LEN_TO_SIZE(1616)
+#define UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE           BIT_LEN_TO_SIZE(1031)
+#define UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID                40
+#define UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE         0xb7d725df72724126
 
 #define UAVCAN_NODE_HEALTH_OK                                       0
 #define UAVCAN_NODE_HEALTH_WARNING                                  1
@@ -358,6 +363,27 @@ static void handle_restart_node_request(CanardInstance* ins, CanardRxTransfer* t
     canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_RESTARTNODE_DATA_TYPE_SIGNATURE, UAVCAN_RESTARTNODE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE);
 }
 
+static void handle_file_beginfirmwareupdate_request(CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    uint8_t source_node_id;
+    canardDecodeScalar(transfer, 0, 8, false, &source_node_id);
+    uint8_t path_len = transfer->payload_len-1;
+    char path[201];
+
+    for(uint8_t i=0; i<path_len; i++) {
+        canardDecodeScalar(transfer, 8+i*8, 8, false, (uint8_t*)&path[i]);
+    }
+    path[path_len] = '\0';
+
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", path);
+}
+
+void send_file_beginfirmwareupdate_response()
+{
+    uint8_t resp_buf[UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE];
+    canardRequestOrRespond(&canard, transfer->source_node_id, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE);
+}
+
 static void handle_esc_rawcommand_message(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     UNUSED(ins);
@@ -384,6 +410,8 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
         handle_restart_node_request(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeBroadcast && transfer->data_type_id == UAVCAN_ESC_RAWCOMMAND_DATA_TYPE_ID) {
         handle_esc_rawcommand_message(ins, transfer);
+    } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID) {
+        handle_file_beginfirmwareupdate_request(ins, transfer);
     }
 }
 
@@ -435,6 +463,11 @@ static bool shouldAcceptTransfer(const CanardInstance* ins, uint64_t* out_data_t
         return true;
     }
 
+    if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID)
+    {
+        *out_data_type_signature = UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE;
+        return true;
+    }
 
     return false;
 }

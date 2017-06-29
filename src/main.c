@@ -21,7 +21,7 @@
 #include "uavcan.h"
 #include <libopencm3/cm3/scb.h>
 #include "helpers.h"
-// #include <stdio.h>
+#include <string.h>
 
 struct jump_info_s {
     uint32_t stacktop;
@@ -56,7 +56,10 @@ int main(void)
 {
     uint32_t jump_info_crc32_computed = crc32((uint8_t*)&jump_info, sizeof(struct jump_info_s)-sizeof(uint32_t), 0);
     if(jump_info.crc32 == jump_info_crc32_computed) {
-        do_jump(jump_info.stacktop, jump_info.entrypoint);
+        uint32_t stacktop = jump_info.stacktop;
+        uint32_t entrypoint = jump_info.entrypoint;
+        memset(&jump_info,0,sizeof(jump_info));
+        do_jump(stacktop, entrypoint);
     }
 
     clock_init();

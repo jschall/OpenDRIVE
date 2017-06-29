@@ -33,6 +33,9 @@ SECTIONS
     .app_bl_shared (NOLOAD) : {
     } >app_bl_shared
 
+    .app (NOLOAD) : {
+    } >app
+
     /* C++ Static constructors/destructors, also used for __attribute__
         * ((constructor)) and the likes */
     .preinit_array : {
