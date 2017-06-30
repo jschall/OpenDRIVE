@@ -56,6 +56,12 @@
 #define UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID                40
 #define UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE         0xb7d725df72724126
 
+#define UAVCAN_FILE_READ_REQUEST_MAX_SIZE                           BIT_LEN_TO_SIZE(1648)
+#define UAVCAN_FILE_READ_RESPONSE_MAX_SIZE                          BIT_LEN_TO_SIZE(2073)
+#define UAVCAN_FILE_READ_DATA_TYPE_ID                               48
+#define UAVCAN_FILE_READ_DATA_TYPE_SIGNATURE                        0x8dcdca939f33f678
+
+
 #define UAVCAN_NODE_HEALTH_OK                                       0
 #define UAVCAN_NODE_HEALTH_WARNING                                  1
 #define UAVCAN_NODE_HEALTH_ERROR                                    2
@@ -68,6 +74,7 @@
 
 static restart_handler_ptr restart_cb;
 static esc_rawcommand_handler_ptr esc_rawcommand_cb;
+static file_beginfirmwareupdate_handler_ptr file_beginfirmwareupdate_cb;
 
 static CanardInstance canard;
 static uint8_t canard_memory_pool[1024];
@@ -91,6 +98,7 @@ static void makeNodeStatusMessage(uint8_t* buffer);
 static bool shouldAcceptTransfer(const CanardInstance* ins, uint64_t* out_data_type_signature, uint16_t data_type_id, CanardTransferType transfer_type, uint8_t source_node_id);
 static void process1HzTasks(void);
 static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer);
+static struct uavcan_transfer_info_s get_transfer_info(const CanardInstance* ins, CanardRxTransfer* transfer);
 
 static void allocation_init(void);
 static void allocation_update(void);
@@ -98,7 +106,6 @@ static bool allocation_running(void);
 static void allocation_timer_expired(void);
 static void allocation_start_request_timer(void);
 static void allocation_start_followup_timer(void);
-
 
 void uavcan_init(void)
 {
@@ -149,6 +156,16 @@ void uavcan_update(void)
     }
 }
 
+static struct uavcan_transfer_info_s get_transfer_info(const CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    struct uavcan_transfer_info_s ret;
+    ret.canardInstance = (void*)ins;
+    ret.remote_node_id = transfer->source_node_id;
+    ret.transfer_id = transfer->transfer_id;
+    ret.priority = transfer->priority;
+    return ret;
+}
+
 void uavcan_set_esc_rawcommand_cb(esc_rawcommand_handler_ptr cb)
 {
     esc_rawcommand_cb = cb;
@@ -157,6 +174,11 @@ void uavcan_set_esc_rawcommand_cb(esc_rawcommand_handler_ptr cb)
 void uavcan_set_restart_cb(restart_handler_ptr cb)
 {
     restart_cb = cb;
+}
+
+void uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler_ptr cb)
+{
+    file_beginfirmwareupdate_cb = cb;
 }
 
 void uavcan_send_debug_key_value(const char* name, float val)
@@ -375,13 +397,42 @@ static void handle_file_beginfirmwareupdate_request(CanardInstance* ins, CanardR
     }
     path[path_len] = '\0';
 
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", path);
+    if (file_beginfirmwareupdate_cb) {
+        file_beginfirmwareupdate_cb(get_transfer_info(ins, transfer), source_node_id, path);
+    } else {
+        struct uavcan_transfer_info_s transfer_info = get_transfer_info(ins, transfer);
+        uavcan_send_file_beginfirmwareupdate_response(&transfer_info, 255, "");
+    }
 }
 
-void send_file_beginfirmwareupdate_response()
+void uavcan_send_file_beginfirmwareupdate_response(struct uavcan_transfer_info_s* transfer_info, uint8_t error, const char* error_message)
 {
-    uint8_t resp_buf[UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE];
-    canardRequestOrRespond(&canard, transfer->source_node_id, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE);
+    uint8_t buf[UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE];
+
+    buf[0] = error;
+    size_t error_message_len = strlen(error_message);
+    memcpy(&buf[1], error_message, error_message_len);
+
+    size_t total_size = error_message_len+1;
+
+    canardRequestOrRespond(transfer_info->canardInstance, transfer_info->remote_node_id, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE, UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID, &transfer_info->transfer_id, transfer_info->priority, CanardResponse, buf, total_size);
+}
+
+
+static uint8_t file_read_transfer_id;
+uint8_t uavcan_send_file_read_request(uint8_t remote_node_id, const uint64_t offset, const char* path)
+{
+    uint8_t buf[UAVCAN_FILE_BEGINFIRMWAREUPDATE_RESPONSE_MAX_SIZE];
+
+    canardEncodeScalar(buf, 0, 40, &offset);
+    size_t path_len = strlen(path);
+    memcpy(&buf[5], path, path_len);
+
+    size_t total_size = path_len+5;
+
+    canardRequestOrRespond(&canard, remote_node_id, UAVCAN_FILE_READ_DATA_TYPE_SIGNATURE, UAVCAN_FILE_READ_DATA_TYPE_ID, &file_read_transfer_id, CANARD_TRANSFER_PRIORITY_LOWEST, CanardRequest, buf, total_size);
+
+    return file_read_transfer_id;
 }
 
 static void handle_esc_rawcommand_message(CanardInstance* ins, CanardRxTransfer* transfer)

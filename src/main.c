@@ -52,6 +52,17 @@ static void do_jump(uint32_t stacktop, uint32_t entrypoint)
     for (;;) ;
 }
 
+static void begin_flash_from_path(uint8_t source_node_id, const char* path)
+{
+    uavcan_send_file_read_request(source_node_id, 0, path);
+}
+
+static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s transfer_info, uint8_t source_node_id, const char* path)
+{
+    uavcan_send_file_beginfirmwareupdate_response(&transfer_info, 0, "");
+    begin_flash_from_path(source_node_id, path);
+}
+
 int main(void)
 {
     uint32_t jump_info_crc32_computed = crc32((uint8_t*)&jump_info, sizeof(struct jump_info_s)-sizeof(uint32_t), 0);
@@ -67,6 +78,7 @@ int main(void)
     canbus_init();
     uavcan_init();
     uavcan_set_restart_cb(restart_request_handler);
+    uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler);
 
     // main loop
     while(1) {
