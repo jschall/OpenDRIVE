@@ -101,3 +101,12 @@ SECTIONS
 }
 
 PROVIDE(_stack = ORIGIN(ram) + LENGTH(ram) - 8);
+
+PROVIDE(_app_begin = ORIGIN(app));
+PROVIDE(_app_end = ORIGIN(app) + LENGTH(app));
+
+PROVIDE(_app_bl_shared_begin = ORIGIN(app_bl_shared));
+PROVIDE(_app_bl_shared_end = ORIGIN(app_bl_shared) + LENGTH(app_bl_shared));
+
+PROVIDE(_params_begin = ORIGIN(params));
+PROVIDE(_params_end = ORIGIN(params) + LENGTH(params));

@@ -24,13 +24,15 @@
 #include <string.h>
 #include <libopencm3/stm32/flash.h>
 
-#define APP_BL_SHARED_SIZE 128
-#define APP_SECTION_PAGES 50
-#define FLASH_PAGE_SIZE 1024
-#define APP_SECTION_SIZE (APP_SECTION_PAGES*FLASH_PAGE_SIZE)
+extern unsigned _app_begin, _app_end, _app_bl_shared_begin, _app_bl_shared_end;
 
-static uint8_t* app_bl_shared __attribute__((section(".app_bl_shared")));
-static uint8_t* app_flash_section __attribute__((section(".app")));
+#define FLASH_PAGE_SIZE 1024
+#define APP_SECTION_SIZE ((uint32_t)(&_app_end - &_app_begin))
+#define APP_SECTION_PAGES (APP_SECTION_SIZE/FLASH_PAGE_SIZE)
+#define APP_BL_SHARED_SIZE ((uint32_t)(&_app_bl_shared_end - &_app_bl_shared_begin))
+
+static uint8_t* app_bl_shared = (uint8_t*)&_app_bl_shared_begin;
+static uint8_t* app_flash_section = (uint8_t*)&_app_begin;// __attribute__((section(".app")));
 
 static bool restart_req = false;
 static uint32_t restart_req_us;
