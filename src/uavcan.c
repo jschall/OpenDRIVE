@@ -75,6 +75,7 @@
 static restart_handler_ptr restart_cb;
 static esc_rawcommand_handler_ptr esc_rawcommand_cb;
 static file_beginfirmwareupdate_handler_ptr file_beginfirmwareupdate_cb;
+static file_read_response_handler_ptr file_read_response_cb;
 
 static CanardInstance canard;
 static uint8_t canard_memory_pool[1024];
@@ -179,6 +180,11 @@ void uavcan_set_restart_cb(restart_handler_ptr cb)
 void uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler_ptr cb)
 {
     file_beginfirmwareupdate_cb = cb;
+}
+
+void uavcan_set_file_read_response_cb(file_read_response_handler_ptr cb)
+{
+    file_read_response_cb = cb;
 }
 
 void uavcan_send_debug_key_value(const char* name, float val)
@@ -435,6 +441,23 @@ uint8_t uavcan_send_file_read_request(uint8_t remote_node_id, const uint64_t off
     return file_read_transfer_id;
 }
 
+static void handle_file_read_response(CanardInstance* ins, CanardRxTransfer* transfer)
+{
+    UNUSED(ins);
+    int16_t error;
+    uint8_t data[256];
+    size_t data_len = transfer->payload_len-2;
+    canardDecodeScalar(transfer, 0, 16, true, &error);
+
+    for(uint8_t i=0; i<data_len; i++) {
+        canardDecodeScalar(transfer, 16+i*8, 8, false, &data[i]);
+    }
+
+    if (file_read_response_cb) {
+        file_read_response_cb(transfer->transfer_id, error, data, data_len, data_len<256);
+    }
+}
+
 static void handle_esc_rawcommand_message(CanardInstance* ins, CanardRxTransfer* transfer)
 {
     UNUSED(ins);
@@ -463,6 +486,8 @@ static void onTransferReceived(CanardInstance* ins, CanardRxTransfer* transfer)
         handle_esc_rawcommand_message(ins, transfer);
     } else if (transfer->transfer_type == CanardTransferTypeRequest && transfer->data_type_id == UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID) {
         handle_file_beginfirmwareupdate_request(ins, transfer);
+    } else if (transfer->transfer_type == CanardTransferTypeResponse && transfer->data_type_id == UAVCAN_FILE_READ_DATA_TYPE_ID) {
+        handle_file_read_response(ins, transfer);
     }
 }
 
@@ -517,6 +542,12 @@ static bool shouldAcceptTransfer(const CanardInstance* ins, uint64_t* out_data_t
     if (transfer_type == CanardTransferTypeRequest && data_type_id == UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_ID)
     {
         *out_data_type_signature = UAVCAN_FILE_BEGINFIRMWAREUPDATE_DATA_TYPE_SIGNATURE;
+        return true;
+    }
+
+    if (transfer_type == CanardTransferTypeResponse && data_type_id == UAVCAN_FILE_READ_DATA_TYPE_ID)
+    {
+        *out_data_type_signature = UAVCAN_FILE_READ_DATA_TYPE_SIGNATURE;
         return true;
     }
 
