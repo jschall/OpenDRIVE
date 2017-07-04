@@ -31,8 +31,8 @@ extern unsigned _app_begin, _app_end, _app_bl_shared_begin, _app_bl_shared_end;
 #define APP_SECTION_PAGES (APP_SECTION_SIZE/FLASH_PAGE_SIZE)
 #define APP_BL_SHARED_SIZE ((uint32_t)(&_app_bl_shared_end - &_app_bl_shared_begin))
 
-static uint8_t* app_bl_shared = (uint8_t*)&_app_bl_shared_begin;
-static uint8_t* app_flash_section = (uint8_t*)&_app_begin;// __attribute__((section(".app")));
+static uint8_t app_bl_shared[128] __attribute__((section(".app_bl_shared")));
+static uint8_t app_flash_section[1024*50] __attribute__((section(".app")));
 
 static bool restart_req = false;
 static uint32_t restart_req_us;
@@ -46,6 +46,9 @@ static bool restart_request_handler(void)
 
 static void do_jump(uint32_t stacktop, uint32_t entrypoint)
 {
+    // offset the vector table
+    SCB_VTOR = (uint32_t)&app_flash_section[0];
+
     asm volatile(
         "msr msp, %0	\n"
         "bx	%1	\n"
@@ -58,6 +61,7 @@ static void do_jump(uint32_t stacktop, uint32_t entrypoint)
 static void do_boot(void);
 
 static struct {
+    bool in_progress;
     uint32_t ofs;
     uint8_t transfer_id;
     uint32_t last_req_ms;
@@ -118,22 +122,29 @@ static void write_data_to_flash(const uint8_t* data, uint16_t data_len)
 
 static void begin_flash_from_path(uint8_t source_node_id, const char* path)
 {
+    uavcan_set_node_mode(UAVCAN_MODE_SOFTWARE_UPDATE);
     memset(&flash_state, 0, sizeof(flash_state));
+    flash_state.in_progress = true;
     flash_state.ofs = 0;
     flash_state.source_node_id = source_node_id;
     strncpy(flash_state.path, path, 200);
     flash_state.transfer_id = uavcan_send_file_read_request(flash_state.source_node_id, flash_state.ofs, flash_state.path);
     flash_state.last_req_ms = millis();
 
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", "erasing");
     for (uint32_t i=0; i<APP_SECTION_SIZE; i+=FLASH_PAGE_SIZE) {
         flash_erase_page(&app_flash_section[i]);
     }
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", "done");
 }
 
 static void file_read_response_handler(uint8_t transfer_id, int16_t error, const uint8_t* data, uint16_t data_len, bool eof)
 {
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", "recv read resp");
     if (transfer_id == flash_state.transfer_id && error == 0) {
+        uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", "writing");
         write_data_to_flash(data, data_len);
+        uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "", "done");
 
         if (eof) {
             do_boot();
@@ -147,8 +158,10 @@ static void file_read_response_handler(uint8_t transfer_id, int16_t error, const
 
 static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s transfer_info, uint8_t source_node_id, const char* path)
 {
-    uavcan_send_file_beginfirmwareupdate_response(&transfer_info, 0, "");
-    begin_flash_from_path(source_node_id, path);
+    uavcan_send_file_beginfirmwareupdate_response(&transfer_info, 2, "");
+    if (!flash_state.in_progress) {
+        begin_flash_from_path(source_node_id, path);
+    }
 }
 
 #ifndef SHARED_MSG_PACKED
@@ -183,8 +196,9 @@ static uint8_t shared_msg_length(uint8_t msgid) {
 static void do_boot(void) {
     struct shared_msg_boot_s* msg = (struct shared_msg_boot_s*)&app_bl_shared;
     msg->msgid = SHARED_MSG_BOOT;
+    msg->len = sizeof(struct shared_msg_boot_s);
     msg->magic = BOOT_MAGIC;
-    msg->crc32 = crc32((uint8_t*)&msg, sizeof(msg)-sizeof(uint32_t), 0);
+    msg->crc32 = crc32((uint8_t*)msg, sizeof(struct shared_msg_boot_s)-sizeof(uint32_t), 0);
 
     scb_reset_system();
 }
@@ -205,6 +219,7 @@ int main(void)
         }
     }
 
+    bool success = false;
     // read the app/bl shared memory, look for the command to boot immediately
     if (shared_msg_valid && shared_msg_id == SHARED_MSG_BOOT) {
         struct shared_msg_boot_s* cmd = (struct shared_msg_boot_s*)&app_bl_shared;
@@ -221,6 +236,8 @@ int main(void)
     uavcan_set_restart_cb(restart_request_handler);
     uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler);
     uavcan_set_file_read_response_cb(file_read_response_handler);
+
+    bool sent = false;
 
     // main loop
     while(1) {

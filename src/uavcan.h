@@ -10,6 +10,14 @@ enum uavcan_loglevel_t {
     UAVCAN_LOGLEVEL_ERROR = 3
 };
 
+enum uavcan_node_mode_t {
+    UAVCAN_MODE_OPERATIONAL = 0,
+    UAVCAN_MODE_INITIALIZATION = 1,
+    UAVCAN_MODE_MAINTENANCE = 2,
+    UAVCAN_MODE_SOFTWARE_UPDATE = 3,
+    UAVCAN_MODE_OFFLINE = 7,
+};
+
 struct uavcan_transfer_info_s {
     void* canardInstance;
     uint8_t remote_node_id;
@@ -28,6 +36,7 @@ void uavcan_set_restart_cb(restart_handler_ptr cb);
 void uavcan_set_esc_rawcommand_cb(esc_rawcommand_handler_ptr cb);
 void uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler_ptr cb);
 void uavcan_set_file_read_response_cb(file_read_response_handler_ptr cb);
+void uavcan_set_node_mode(enum uavcan_node_mode_t mode);
 
 void uavcan_send_debug_key_value(const char* name, float val);
 void uavcan_send_debug_logmessage(enum uavcan_loglevel_t log_level, const char* source, const char* text);
