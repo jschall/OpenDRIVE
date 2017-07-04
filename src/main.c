@@ -23,12 +23,6 @@
 #include "helpers.h"
 // #include <stdio.h>
 
-struct jump_info_s {
-    uint32_t stacktop;
-    uint32_t entrypoint;
-    uint32_t crc32;
-};
-
 static bool restart_req = false;
 static uint32_t restart_req_us = 0;
 
