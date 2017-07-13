@@ -33,6 +33,17 @@
 #include <esc/uavcan.h>
 #include <stdio.h>
 #include <libopencm3/cm3/scb.h>
+#include <bootloader/shared.h>
+
+static struct shared_app_descriptor_s app_descriptor __attribute__((section(".app_descriptor"),used)) = {
+    .signature = SHARED_APP_DESCRIPTOR_SIGNATURE,
+    .image_crc = 0,
+    .image_size = 0,
+    .vcs_commit = GIT_HASH,
+    .major_version = 1,
+    .minor_version = 0,
+    .reserved = { 0, 0, 0, 0, 0, 0}
+};
 
 static bool restart_req = false;
 static uint32_t restart_req_us = 0;
