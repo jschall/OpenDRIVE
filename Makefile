@@ -1,13 +1,13 @@
-BOOTLOADER_DIR := submodules/bootloader
-LIBOPENCM3_DIR := submodules/libopencm3
-LIBCANARD_DIR := submodules/libcanard
+BOOTLOADER_DIR := omd_common/bootloader
+LIBOPENCM3_DIR := omd_common/libopencm3
+LIBCANARD_DIR := omd_common/libcanard
 LDSCRIPT := boards/stm32f302k8/app.ld
 BL_LDSCRIPT := boards/stm32f302k8/bl.ld
 BL_CONFIG_FILE := boards/board_jc_esc.c
 
 ARCH_FLAGS := -mthumb -mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16
 
-LDFLAGS := --static -nostartfiles -L$(LIBOPENCM3_DIR)/lib -L $(dir $(LDSCRIPT)) -T$(LDSCRIPT) -Wl,--gc-sections --specs=nano.specs -u printf_float
+LDFLAGS := --static -nostartfiles -L$(LIBOPENCM3_DIR)/lib -L $(dir $(LDSCRIPT)) -T$(LDSCRIPT) -Wl,--gc-sections --specs=nano.specs -u printf_float -Wl,--no-wchar-size-warning
 
 LDLIBS := -lopencm3_stm32f3 -lm -Wl,--start-group -lc -lgcc -lrdimon -Wl,--end-group
 

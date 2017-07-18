@@ -21,8 +21,8 @@ static const struct shared_onboard_periph_pin_info_s osc_pin_descs[] = {
 };
 
 static const struct shared_onboard_periph_pin_info_s can_pin_descs[] = {
-    {.function = SHARED_PERIPH_INFO_PIN_FUNCTION_CAN1_RX,   .port = 0, .pin = 11, .config_hint = 9},  // PA11->CAN_RX
-    {.function = SHARED_PERIPH_INFO_PIN_FUNCTION_CAN1_TX,   .port = 0, .pin = 12, .config_hint = 9},  // PA12->CAN_TX
+    {.function = SHARED_PERIPH_INFO_PIN_FUNCTION_CAN1_RX,   .port = 0, .pin = 11},  // PA11->CAN_RX
+    {.function = SHARED_PERIPH_INFO_PIN_FUNCTION_CAN1_TX,   .port = 0, .pin = 12},  // PA12->CAN_TX
 };
 
 static const struct shared_onboard_periph_pin_info_s vsense_pin_descs[] = {

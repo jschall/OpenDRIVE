@@ -1,0 +1,9 @@
+[submodule "libcanard"]
+	path = libcanard
+	url = git@github.com:OpenMotorDrive/libcanard.git
+[submodule "libopencm3"]
+	path = libopencm3
+	url = git@github.com:OpenMotorDrive/libopencm3.git
+[submodule "bootloader"]
+	path = bootloader
+	url = git@github.com:OpenMotorDrive/bootloader.git
