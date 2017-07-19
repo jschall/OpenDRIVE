@@ -1,0 +1,3 @@
+[submodule "omd_common"]
+	path = omd_common
+	url = git@github.com:OpenMotorDrive/omd_common.git
