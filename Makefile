@@ -3,7 +3,7 @@ LIBOPENCM3_DIR := omd_common/libopencm3
 LIBCANARD_DIR := omd_common/libcanard
 LDSCRIPT := boards/stm32f302k8/app.ld
 BL_LDSCRIPT := boards/stm32f302k8/bl.ld
-BL_CONFIG_FILE := boards/board_jc_esc.c
+BOARD_CONFIG_HEADER := boards/board_jc_esc.h
 
 ARCH_FLAGS := -mthumb -mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16
 
@@ -11,7 +11,7 @@ LDFLAGS := --static -nostartfiles -L$(LIBOPENCM3_DIR)/lib -L $(dir $(LDSCRIPT)) 
 
 LDLIBS := -lopencm3_stm32f3 -lm -Wl,--start-group -lc -lgcc -lrdimon -Wl,--end-group
 
-CFLAGS += -std=gnu11 -O3 -ffast-math -g -Wdouble-promotion -Wextra -Wshadow -Werror=implicit-function-declaration -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes -fsingle-precision-constant -fno-common -ffunction-sections -fdata-sections -MD -Wall -Wundef -Isrc -I$(LIBOPENCM3_DIR)/include -I$(LIBCANARD_DIR) -I$(BOOTLOADER_DIR)/include -DSTM32F3 -D"CANARD_ASSERT(x)"="do {} while(0)" -DGIT_HASH=0x$(shell git rev-parse --short=8 HEAD) -fshort-wchar
+CFLAGS += -std=gnu11 -O3 -ffast-math -g -Wdouble-promotion -Wextra -Wshadow -Werror=implicit-function-declaration -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes -fsingle-precision-constant -fno-common -ffunction-sections -fdata-sections -MD -Wall -Wundef -Isrc -I$(LIBOPENCM3_DIR)/include -I$(LIBCANARD_DIR) -I$(BOOTLOADER_DIR)/include -DSTM32F3 -D"CANARD_ASSERT(x)"="do {} while(0)" -DGIT_HASH=0x$(shell git rev-parse --short=8 HEAD) -fshort-wchar -include $(BOARD_CONFIG_HEADER)
 
 COMMON_OBJS := $(addprefix build/,$(addsuffix .o,$(basename $(shell find src/esc -name "*.c"))))
 COMMON_OBJS += $(addprefix build/,$(addsuffix .o,$(basename $(shell find $(BOOTLOADER_DIR)/shared -name "*.c"))))
@@ -67,10 +67,10 @@ clean:
 
 bootloader:
 	@echo "### BUILDING BOOTLOADER..."
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_FILE=$(abspath $(BL_CONFIG_FILE)) clean
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_FILE=$(abspath $(BL_CONFIG_FILE))
+	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) clean
+	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER))
 
 bootloader-upload:
 	@echo "### BUILDING AND UPLOADING BOOTLOADER..."
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_FILE=$(abspath $(BL_CONFIG_FILE)) clean
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_FILE=$(abspath $(BL_CONFIG_FILE)) upload
+	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) clean
+	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) upload
