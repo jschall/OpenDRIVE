@@ -93,3 +93,5 @@ SECTIONS
 }
 
 PROVIDE(_stack = ORIGIN(ram) + LENGTH(ram) - 8);
+PROVIDE(_app_bl_shared_sec = ORIGIN(app_bl_shared));
+

@@ -13,7 +13,7 @@ LDLIBS := -lopencm3_stm32f3 -lm -Wl,--start-group -lc -lgcc -lrdimon -Wl,--end-g
 
 CFLAGS += -std=gnu11 -O3 -ffast-math -g -Wdouble-promotion -Wextra -Wshadow -Werror=implicit-function-declaration -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes -fsingle-precision-constant -fno-common -ffunction-sections -fdata-sections -MD -Wall -Wundef -Isrc -I$(LIBOPENCM3_DIR)/include -I$(LIBCANARD_DIR) -I$(BOOTLOADER_DIR)/include -DSTM32F3 -D"CANARD_ASSERT(x)"="do {} while(0)" -DGIT_HASH=0x$(shell git rev-parse --short=8 HEAD) -fshort-wchar -include $(BOARD_CONFIG_HEADER)
 
-COMMON_OBJS := $(addprefix build/,$(addsuffix .o,$(basename $(shell find src/esc -name "*.c"))))
+COMMON_OBJS := $(addprefix build/,$(addsuffix .o,$(basename $(shell find src -name "*.c"))))
 COMMON_OBJS += $(addprefix build/,$(addsuffix .o,$(basename $(shell find $(BOOTLOADER_DIR)/shared -name "*.c"))))
 
 BIN := build/bin/main.elf build/bin/main.bin
@@ -21,11 +21,7 @@ BIN := build/bin/main.elf build/bin/main.bin
 .PHONY: all
 all: $(LIBOPENCM3_DIR) $(BIN)
 
-.PRECIOUS: src/esc/ekf.c src/esc/ekf.h
-src/esc/ekf.h src/esc/ekf.c: tools/ekf/ekf_generator.py
-	python tools/ekf/ekf_generator.py src/esc/ekf.h src/esc/ekf.c
-
-build/bin/%.elf: $(COMMON_OBJS) build/canard.o build/src/esc/ekf.o
+build/bin/%.elf: $(COMMON_OBJS) build/canard.o
 	@echo "### BUILDING $@"
 	@mkdir -p "$(dir $@)"
 	@arm-none-eabi-gcc $(LDFLAGS) $(ARCH_FLAGS) $^ $(LDLIBS) -o $@
