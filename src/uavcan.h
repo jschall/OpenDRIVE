@@ -25,6 +25,13 @@ enum uavcan_node_mode_t {
     UAVCAN_MODE_OFFLINE = 7,
 };
 
+enum uavcan_node_health_t {
+    UAVCAN_HEALTH_OK = 0,
+    UAVCAN_HEALTH_WARNING,
+    UAVCAN_HEALTH_ERROR,
+    UAVCAN_HEALTH_CRITICAL
+};
+
 struct uavcan_transfer_info_s {
     void* canardInstance;
     uint8_t remote_node_id;
@@ -56,6 +63,7 @@ void uavcan_set_restart_cb(restart_handler_ptr cb);
 void uavcan_set_file_beginfirmwareupdate_cb(file_beginfirmwareupdate_handler_ptr cb);
 void uavcan_set_file_read_response_cb(file_read_response_handler_ptr cb);
 void uavcan_set_node_mode(enum uavcan_node_mode_t mode);
+void uavcan_set_node_health(enum uavcan_node_health_t health);
 void uavcan_set_node_id(uint8_t node_id);
 uint8_t uavcan_get_node_id(void);
 void uavcan_set_node_info(struct uavcan_node_info_s new_node_info);

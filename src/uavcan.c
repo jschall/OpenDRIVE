@@ -58,12 +58,6 @@
 #define UAVCAN_FILE_READ_DATA_TYPE_ID                               48
 #define UAVCAN_FILE_READ_DATA_TYPE_SIGNATURE                        0x8dcdca939f33f678
 
-
-#define UAVCAN_NODE_HEALTH_OK                                       0
-#define UAVCAN_NODE_HEALTH_WARNING                                  1
-#define UAVCAN_NODE_HEALTH_ERROR                                    2
-#define UAVCAN_NODE_HEALTH_CRITICAL                                 3
-
 #define UNIQUE_ID_LENGTH_BYTES                                      16
 
 static struct uavcan_node_info_s node_info;
@@ -76,7 +70,7 @@ static uavcan_ready_handler_ptr uavcan_ready_cb;
 static CanardInstance canard;
 static uint8_t canard_memory_pool[1024];
 
-static uint8_t node_health = UAVCAN_NODE_HEALTH_OK;
+static uint8_t node_health = UAVCAN_HEALTH_OK;
 static uint8_t node_mode   = UAVCAN_MODE_INITIALIZATION;
 
 static struct {
@@ -180,6 +174,11 @@ uint8_t uavcan_get_node_id() {
 void uavcan_set_node_mode(enum uavcan_node_mode_t mode)
 {
     node_mode = mode;
+}
+
+void uavcan_set_node_health(enum uavcan_node_health_t health)
+{
+    node_health = health;
 }
 
 void uavcan_set_uavcan_ready_cb(uavcan_ready_handler_ptr cb)

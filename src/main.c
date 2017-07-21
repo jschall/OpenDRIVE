@@ -28,7 +28,7 @@
 #define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100
 #define CANBUS_AUTOBAUD_TIMEOUT_US 10000000
 
-static const struct shared_app_descriptor_s shared_app_descriptor __attribute__((section(".app_descriptor"),used)) = {
+static volatile const struct shared_app_descriptor_s shared_app_descriptor __attribute__((section(".app_descriptor"),used)) = {
     .signature = SHARED_APP_DESCRIPTOR_SIGNATURE,
     .image_crc = 0,
     .image_size = 0,
@@ -48,6 +48,17 @@ static enum shared_msg_t shared_msgid;
 static union shared_msg_payload_u shared_msg;
 static bool shared_msg_valid;
 
+static void fill_shared_canbus_info(struct shared_canbus_info_s* canbus_info) {
+    canbus_info->local_node_id = uavcan_get_node_id();
+
+    if (canbus_get_confirmed_baudrate()) {
+        canbus_info->baudrate = canbus_get_confirmed_baudrate();
+    } else if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
+        canbus_info->baudrate = canbus_info->baudrate;
+    } else {
+        canbus_info->baudrate = 0;
+    }
+}
 
 static void set_uavcan_node_info(void)
 {
@@ -96,15 +107,7 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
     }
 
     union shared_msg_payload_u msg;
-    msg.boot_msg.canbus_info.local_node_id = uavcan_get_node_id();
-
-    if (canbus_get_confirmed_baudrate()) {
-        msg.boot_msg.canbus_info.baudrate = canbus_get_confirmed_baudrate();
-    } else if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
-        msg.boot_msg.canbus_info.baudrate = shared_msg.canbus_info.baudrate;
-    } else {
-        msg.boot_msg.canbus_info.baudrate = 0;
-    }
+    fill_shared_canbus_info(&msg.firmwareupdate_msg.canbus_info);
 
     if (source_node_id > 0 && source_node_id <= 127) {
         msg.firmwareupdate_msg.source_node_id = source_node_id;
@@ -117,8 +120,44 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
     shared_msg_finalize_and_write(SHARED_MSG_FIRMWAREUPDATE, &msg);
 
     uavcan_send_file_beginfirmwareupdate_response(&transfer_info, UAVCAN_BEGINFIRMWAREUPDATE_ERROR_OK, "");
-    usleep(1000);
+
+    uint32_t tbegin_us = micros();
+    while (micros()-tbegin_us < 100000) {
+        uavcan_update();
+    }
+
     scb_reset_system();
+}
+
+static void spi_init(void) {
+    rcc_periph_clock_enable(RCC_SPI3);
+    rcc_periph_clock_enable(RCC_GPIOA);
+    rcc_periph_clock_enable(RCC_GPIOB);
+    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO15); // LED CS
+    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5); // MS5611 nCS
+    gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO0); // ICM nCS
+    gpio_clear(GPIOA, GPIO15); // LED CS down
+    gpio_set(GPIOB, GPIO0); // ICM nCS up
+    gpio_set(GPIOA, GPIO5); // MS5611 nCS up
+
+    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
+    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO3); // SCK
+    gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
+
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_4);
+    spi_set_clock_polarity_1(SPI3);
+    spi_set_clock_phase_1(SPI3);
+    spi_set_full_duplex_mode(SPI3);
+    spi_set_unidirectional_mode(SPI3);
+    spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
+    spi_send_msb_first(SPI3);
+    spi_enable_software_slave_management(SPI3);
+    spi_set_master_mode(SPI3);
+    spi_enable(SPI3);
+}
+
+static void led_update(void) {
+
 }
 
 int main(void)
@@ -183,6 +222,10 @@ int main(void)
     uavcan_update();
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
+            union shared_msg_payload_u msg;
+            fill_shared_canbus_info(&msg.canbus_info);
+            shared_msg_finalize_and_write(SHARED_MSG_CANBUS_INFO, &msg);
+
             scb_reset_system();
         }
     }

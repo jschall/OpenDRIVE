@@ -3,7 +3,7 @@ LIBOPENCM3_DIR := omd_common/libopencm3
 LIBCANARD_DIR := omd_common/libcanard
 LDSCRIPT := boards/stm32f302k8/app.ld
 BL_LDSCRIPT := boards/stm32f302k8/bl.ld
-BOARD_CONFIG_HEADER := boards/board_jc_esc.h
+BOARD_CONFIG_HEADER := boards/board_can_gps.h
 
 ARCH_FLAGS := -mthumb -mcpu=cortex-m4 -mfloat-abi=hard -mfpu=fpv4-sp-d16
 
@@ -61,12 +61,13 @@ clean:
 	@rm -f src/esc/ekf.h
 	@rm -f src/esc/ekf.c
 
+.PHONY: bootloader
 bootloader:
 	@echo "### BUILDING BOOTLOADER..."
 	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) clean
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER))
+	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) USE_LTO=1
 
-bootloader-upload:
-	@echo "### BUILDING AND UPLOADING BOOTLOADER..."
-	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) clean
+.PHONY: bootloader-upload
+bootloader-upload: bootloader
+	@echo "### UPLOADING BOOTLOADER..."
 	@$(MAKE) -C $(BOOTLOADER_DIR) LDSCRIPT=$(abspath $(BL_LDSCRIPT)) BOARD_CONFIG_HEADER=$(abspath $(BOARD_CONFIG_HEADER)) upload
