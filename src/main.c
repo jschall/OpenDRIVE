@@ -24,6 +24,10 @@
 #include <string.h>
 #include <bootloader/shared.h>
 #include <stdlib.h>
+#include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/spi.h>
+#include <libopencm3/stm32/rcc.h>
+#include <math.h>
 
 #define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100
 #define CANBUS_AUTOBAUD_TIMEOUT_US 10000000
@@ -141,23 +145,89 @@ static void spi_init(void) {
     gpio_set(GPIOA, GPIO5); // MS5611 nCS up
 
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
-    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO3); // SCK
+    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO3); // SCK
     gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
 
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_4);
-    spi_set_clock_polarity_1(SPI3);
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_2);
+    spi_set_clock_polarity_0(SPI3);
     spi_set_clock_phase_1(SPI3);
     spi_set_full_duplex_mode(SPI3);
     spi_set_unidirectional_mode(SPI3);
     spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
     spi_send_msb_first(SPI3);
     spi_enable_software_slave_management(SPI3);
+    spi_set_nss_high(SPI3);
+    spi_fifo_reception_threshold_8bit(SPI3);
     spi_set_master_mode(SPI3);
     spi_enable(SPI3);
 }
 
 static void led_update(void) {
+    struct led_color_s {
+        uint8_t red;
+        uint8_t green;
+        uint8_t blue;
+    };
 
+
+    struct led_color_s led_colors[4];
+    uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
+
+
+    switch((millis()/333) % 3) {
+        case 0:
+            for(uint8_t i=0; i<num_leds; i++) {
+                led_colors[i].red = 0x10;
+                led_colors[i].green = 0;
+                led_colors[i].blue = 0;
+            }
+            break;
+        case 1:
+            for(uint8_t i=0; i<num_leds; i++) {
+                led_colors[i].red = 0;
+                led_colors[i].green = 0x10;
+                led_colors[i].blue = 0;
+            }
+            break;
+        case 2:
+            for(uint8_t i=0; i<num_leds; i++) {
+                led_colors[i].red = 0;
+                led_colors[i].green = 0;
+                led_colors[i].blue = 0x10;
+            }
+            break;
+    }
+
+    uint16_t min_bits = (uint16_t)num_leds*25+50;
+    uint8_t num_leading_zeros = 8-min_bits%8 + 50;
+    uint16_t num_bytes = (min_bits+7)/8;
+    uint8_t buf[num_bytes];
+    uint16_t bit_ofs = num_leading_zeros;
+    memset(buf,0,sizeof(buf));
+    for (uint8_t i=0; i<num_leds; i++) {
+        buf[bit_ofs/8] |= 0x80>>(bit_ofs%8);
+        bit_ofs++;
+        uint8_t write_mask = 0xFFU<<(bit_ofs%8);
+        buf[bit_ofs/8] |= (led_colors[i].blue & write_mask)>>(bit_ofs%8);
+        buf[bit_ofs/8+1] |= (led_colors[i].blue & ~write_mask)<<(8-bit_ofs%8);
+        bit_ofs += 8;
+        write_mask = 0xFFU<<(bit_ofs%8);
+        buf[bit_ofs/8] |= (led_colors[i].red & write_mask)>>(bit_ofs%8);
+        buf[bit_ofs/8+1] |= (led_colors[i].red & ~write_mask)<<(8-bit_ofs%8);
+        bit_ofs += 8;
+        write_mask = 0xFFU<<(bit_ofs%8);
+        buf[bit_ofs/8] |= (led_colors[i].green & write_mask)>>(bit_ofs%8);
+        buf[bit_ofs/8+1] |= (led_colors[i].green & ~write_mask)<<(8-bit_ofs%8);
+        bit_ofs += 8;
+    }
+
+    gpio_set(GPIOA, GPIO15);
+    for(uint16_t i=0; i<sizeof(buf); i++) {
+        spi_send8(SPI3, buf[i]);
+    }
+    while (SPI_SR(SPI3) & SPI_SR_BSY);
+    gpio_clear(GPIOA, GPIO15);
+    usleep(1000);
 }
 
 int main(void)
@@ -217,9 +287,12 @@ int main(void)
         uavcan_set_node_id(shared_msg.canbus_info.local_node_id);
     }
 
+    spi_init();
+
     // main loop
     while(1) {
-    uavcan_update();
+        uavcan_update();
+        led_update();
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
             union shared_msg_payload_u msg;
