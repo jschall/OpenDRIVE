@@ -124,7 +124,7 @@ uint32_t canbus_autobaud_update(struct canbus_autobaud_state_s* state) {
     uint32_t time_since_switch_us = tnow_us - state->last_switch_us;
 
     struct canbus_msg msg;
-    if (canbus_recv_message(&msg) && time_since_switch_us > 100) {
+    if (canbus_recv_message(&msg)) {
         state->success = true;
         return valid_baudrates[state->curr_baud_idx];
     }

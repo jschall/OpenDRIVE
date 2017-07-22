@@ -58,8 +58,6 @@ upload: build/bin/main.elf build/bin/main.bin
 clean:
 	@$(MAKE) -C $(LIBOPENCM3_DIR) clean
 	@rm -rf build
-	@rm -f src/esc/ekf.h
-	@rm -f src/esc/ekf.c
 
 .PHONY: bootloader
 bootloader:

@@ -28,8 +28,9 @@
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/rcc.h>
 #include <math.h>
+#include "led.h"
 
-#define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100
+#define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100 // not exactly one second, to avoid potential race conditions
 #define CANBUS_AUTOBAUD_TIMEOUT_US 10000000
 
 static volatile const struct shared_app_descriptor_s shared_app_descriptor __attribute__((section(".app_descriptor"),used)) = {
@@ -133,6 +134,11 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
     scb_reset_system();
 }
 
+static void led_spi_send_byte(uint8_t byte) {
+    spi_send8(SPI3, byte);
+    while (SPI_SR(SPI3) & SPI_SR_BSY);
+}
+
 static void spi_init(void) {
     rcc_periph_clock_enable(RCC_SPI3);
     rcc_periph_clock_enable(RCC_GPIOA);
@@ -163,69 +169,28 @@ static void spi_init(void) {
 }
 
 static void led_update(void) {
-    struct led_color_s {
-        uint8_t red;
-        uint8_t green;
-        uint8_t blue;
-    };
 
+    uint32_t led_color = 0;
+    switch((millis()/100) % 20) {
+        case 0:
+            led_color = 0xffffff;
+            break;
+        case 1:
+            led_color = 0x000000;
+            break;
+        case 2:
+            led_color = 0xffffff;
+            break;
+    };
 
     struct led_color_s led_colors[4];
     uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
-
-
-    switch((millis()/333) % 3) {
-        case 0:
-            for(uint8_t i=0; i<num_leds; i++) {
-                led_colors[i].red = 0x10;
-                led_colors[i].green = 0;
-                led_colors[i].blue = 0;
-            }
-            break;
-        case 1:
-            for(uint8_t i=0; i<num_leds; i++) {
-                led_colors[i].red = 0;
-                led_colors[i].green = 0x10;
-                led_colors[i].blue = 0;
-            }
-            break;
-        case 2:
-            for(uint8_t i=0; i<num_leds; i++) {
-                led_colors[i].red = 0;
-                led_colors[i].green = 0;
-                led_colors[i].blue = 0x10;
-            }
-            break;
-    }
-
-    uint16_t min_bits = (uint16_t)num_leds*25+50;
-    uint8_t num_leading_zeros = 8-min_bits%8 + 50;
-    uint16_t num_bytes = (min_bits+7)/8;
-    uint8_t buf[num_bytes];
-    uint16_t bit_ofs = num_leading_zeros;
-    memset(buf,0,sizeof(buf));
-    for (uint8_t i=0; i<num_leds; i++) {
-        buf[bit_ofs/8] |= 0x80>>(bit_ofs%8);
-        bit_ofs++;
-        uint8_t write_mask = 0xFFU<<(bit_ofs%8);
-        buf[bit_ofs/8] |= (led_colors[i].blue & write_mask)>>(bit_ofs%8);
-        buf[bit_ofs/8+1] |= (led_colors[i].blue & ~write_mask)<<(8-bit_ofs%8);
-        bit_ofs += 8;
-        write_mask = 0xFFU<<(bit_ofs%8);
-        buf[bit_ofs/8] |= (led_colors[i].red & write_mask)>>(bit_ofs%8);
-        buf[bit_ofs/8+1] |= (led_colors[i].red & ~write_mask)<<(8-bit_ofs%8);
-        bit_ofs += 8;
-        write_mask = 0xFFU<<(bit_ofs%8);
-        buf[bit_ofs/8] |= (led_colors[i].green & write_mask)>>(bit_ofs%8);
-        buf[bit_ofs/8+1] |= (led_colors[i].green & ~write_mask)<<(8-bit_ofs%8);
-        bit_ofs += 8;
+    for(uint8_t i=0; i<num_leds; i++) {
+        led_make_brg_color_hex(led_color,&led_colors[i]);
     }
 
     gpio_set(GPIOA, GPIO15);
-    for(uint16_t i=0; i<sizeof(buf); i++) {
-        spi_send8(SPI3, buf[i]);
-    }
-    while (SPI_SR(SPI3) & SPI_SR_BSY);
+    led_write(num_leds, led_colors, led_spi_send_byte);
     gpio_clear(GPIOA, GPIO15);
     usleep(1000);
 }
