@@ -170,25 +170,15 @@ static void spi_init(void) {
     spi_enable(SPI3);
 }
 
+static uint8_t led_r,led_g,led_b;
+static uint8_t led_reg;
+static bool led_reg_received;
+
 static void led_update(void) {
-
-    uint32_t led_color = 0;
-    switch((millis()/100) % 20) {
-        case 0:
-            led_color = 0xffffff;
-            break;
-        case 1:
-            led_color = 0x000000;
-            break;
-        case 2:
-            led_color = 0xffffff;
-            break;
-    };
-
     struct led_color_s led_colors[4];
     uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
     for(uint8_t i=0; i<num_leds; i++) {
-        led_make_brg_color_hex(led_color,&led_colors[i]);
+        led_make_brg_color_rgb(led_r,led_g,led_b,&led_colors[i]);
     }
 
     gpio_set(GPIOA, GPIO15);
@@ -267,8 +257,10 @@ int main(void)
     i2c_set_prescaler(I2C2,8);
     i2c_set_data_setup_time(I2C2,9);
     i2c_set_data_hold_time(I2C2,11);
-    i2c_disable_stretching(I2C2);
-    i2c_set_own_7bit_slave_address(I2C2, 0x55);
+    i2c_enable_stretching(I2C2);
+    i2c_set_7bit_addr_mode(I2C2);
+    I2C_OAR1(I2C2) = (0x55&0xFF) << 1;
+    I2C_OAR1(I2C2) |= (1<<15);
     i2c_peripheral_enable(I2C2);
 
     // main loop
@@ -276,14 +268,41 @@ int main(void)
         uavcan_update();
         led_update();
 
+        if (I2C_ISR(I2C2) & (1<<3)) {
+            led_reg_received = false;
+            I2C_ICR(I2C2) |= (1<<3);
+        }
+
         if (i2c_received_data(I2C2)) {
             uint8_t recvd = i2c_get_data(I2C2);
-            char temp[33];
-            char msg[50];
-            msg[0] = 0;
-            strcat(msg, itoa((recvd>>4)&0xf,temp,16));
-            strcat(msg, itoa(recvd&0xf,temp,16));
-            uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", msg);
+            if (!led_reg_received) {
+                led_reg_received = true;
+                led_reg = recvd;
+            } else {
+                switch(led_reg) {
+                    case 1:
+                        led_b = recvd << 4;
+                        break;
+                    case 2:
+                        led_g = recvd << 4;
+                        break;
+                    case 3:
+                        led_r = recvd << 4;
+                        break;
+                }
+                led_reg++;
+            }
+//             char temp[33];
+//             char msg[50];
+//             msg[0] = 0;
+//             strcat(msg, itoa((recvd>>4)&0xf,temp,16));
+//             strcat(msg, itoa(recvd&0xf,temp,16));
+//             uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", msg);
+        }
+
+        if (I2C_ISR(I2C2) & (1<<10)) {
+            I2C_ICR(I2C2) |= (1<<10);
+//             uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", "OVR");
         }
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
