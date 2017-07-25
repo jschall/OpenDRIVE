@@ -27,8 +27,10 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/rcc.h>
+#include <libopencm3/stm32/i2c.h>
 #include <math.h>
 #include "led.h"
+
 
 #define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100 // not exactly one second, to avoid potential race conditions
 #define CANBUS_AUTOBAUD_TIMEOUT_US 10000000
@@ -254,10 +256,35 @@ int main(void)
 
     spi_init();
 
+    rcc_periph_clock_enable(RCC_I2C2);
+    i2c_reset(I2C2);
+    gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO9|GPIO10);
+    gpio_set_af(GPIOA, GPIO_AF4, GPIO9|GPIO10);
+    i2c_peripheral_disable(I2C2);
+    i2c_enable_analog_filter(I2C2);
+    i2c_set_digital_filter(I2C2, I2C_CR1_DNF_DISABLED);
+    rcc_set_i2c_clock_sysclk(I2C2);
+    i2c_set_prescaler(I2C2,8);
+    i2c_set_data_setup_time(I2C2,9);
+    i2c_set_data_hold_time(I2C2,11);
+    i2c_disable_stretching(I2C2);
+    i2c_set_own_7bit_slave_address(I2C2, 0x55);
+    i2c_peripheral_enable(I2C2);
+
     // main loop
     while(1) {
         uavcan_update();
         led_update();
+
+        if (i2c_received_data(I2C2)) {
+            uint8_t recvd = i2c_get_data(I2C2);
+            char temp[33];
+            char msg[50];
+            msg[0] = 0;
+            strcat(msg, itoa((recvd>>4)&0xf,temp,16));
+            strcat(msg, itoa(recvd&0xf,temp,16));
+            uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", msg);
+        }
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
             union shared_msg_payload_u msg;
