@@ -96,13 +96,6 @@ static bool restart_request_handler(void)
     return true;
 }
 
-// static void concat_int64_hex(char* dest, uint64_t val) {
-//     char temp[10];
-//     for(int8_t i=15; i>=0; i--) {
-//         strcat(dest,itoa((val>>(4*i))&0xf,temp,16));
-//     }
-// }
-
 static void uavcan_ready_handler(void) {
 
 }
@@ -170,11 +163,57 @@ static void spi_init(void) {
     spi_enable(SPI3);
 }
 
+static void i2c_slave_init(void) {
+    rcc_periph_clock_enable(RCC_I2C2);
+    i2c_reset(I2C2);
+    gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO9|GPIO10);
+    gpio_set_af(GPIOA, GPIO_AF4, GPIO9|GPIO10);
+    i2c_peripheral_disable(I2C2);
+    i2c_enable_analog_filter(I2C2);
+    i2c_set_digital_filter(I2C2, I2C_CR1_DNF_DISABLED);
+    rcc_set_i2c_clock_sysclk(I2C2);
+    i2c_set_prescaler(I2C2,8);
+    i2c_set_data_setup_time(I2C2,9);
+    i2c_set_data_hold_time(I2C2,11);
+    i2c_enable_stretching(I2C2);
+    i2c_set_7bit_addr_mode(I2C2);
+    I2C_OAR1(I2C2) = (0x55&0xFF) << 1;
+    I2C_OAR1(I2C2) |= (1<<15);
+    i2c_peripheral_enable(I2C2);
+}
+
 static uint8_t led_r,led_g,led_b;
 static uint8_t led_reg;
 static bool led_reg_received;
 
 static void led_update(void) {
+    // TODO use interrupts to avoid clock stretching
+    if (I2C_ISR(I2C2) & (1<<3)) {
+        led_reg_received = false;
+        I2C_ICR(I2C2) |= (1<<3);
+    }
+
+    if (i2c_received_data(I2C2)) {
+        uint8_t recvd = i2c_get_data(I2C2);
+        if (!led_reg_received) {
+            led_reg_received = true;
+            led_reg = recvd;
+        } else {
+            switch(led_reg) {
+                case 1:
+                    led_b = recvd << 4;
+                    break;
+                case 2:
+                    led_g = recvd << 4;
+                    break;
+                case 3:
+                    led_r = recvd << 4;
+                    break;
+            }
+            led_reg++;
+        }
+    }
+
     struct led_color_s led_colors[4];
     uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
     for(uint8_t i=0; i<num_leds; i++) {
@@ -184,17 +223,9 @@ static void led_update(void) {
     gpio_set(GPIOA, GPIO15);
     led_write(num_leds, led_colors, led_spi_send_byte);
     gpio_clear(GPIOA, GPIO15);
-    usleep(1000);
 }
 
-int main(void)
-{
-    init_clock();
-    timing_init();
-
-    shared_msg_valid = shared_msg_check_and_retreive(&shared_msgid, &shared_msg);
-    shared_msg_clear();
-
+static uint32_t get_canbus_baud(void) {
     uint32_t initial_canbus_baud;
     if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
         initial_canbus_baud = shared_msg.canbus_info.baudrate;
@@ -228,8 +259,18 @@ int main(void)
             canbus_baud = initial_canbus_baud;
         }
     }
+    return canbus_baud;
+}
 
-    canbus_init(canbus_baud, false);
+int main(void)
+{
+    init_clock();
+    timing_init();
+
+    shared_msg_valid = shared_msg_check_and_retreive(&shared_msgid, &shared_msg);
+    shared_msg_clear();
+
+    canbus_init(get_canbus_baud(), false);
     uavcan_init();
 
     set_uavcan_node_info();
@@ -245,65 +286,12 @@ int main(void)
     }
 
     spi_init();
-
-    rcc_periph_clock_enable(RCC_I2C2);
-    i2c_reset(I2C2);
-    gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO9|GPIO10);
-    gpio_set_af(GPIOA, GPIO_AF4, GPIO9|GPIO10);
-    i2c_peripheral_disable(I2C2);
-    i2c_enable_analog_filter(I2C2);
-    i2c_set_digital_filter(I2C2, I2C_CR1_DNF_DISABLED);
-    rcc_set_i2c_clock_sysclk(I2C2);
-    i2c_set_prescaler(I2C2,8);
-    i2c_set_data_setup_time(I2C2,9);
-    i2c_set_data_hold_time(I2C2,11);
-    i2c_enable_stretching(I2C2);
-    i2c_set_7bit_addr_mode(I2C2);
-    I2C_OAR1(I2C2) = (0x55&0xFF) << 1;
-    I2C_OAR1(I2C2) |= (1<<15);
-    i2c_peripheral_enable(I2C2);
+    i2c_slave_init();
 
     // main loop
     while(1) {
         uavcan_update();
         led_update();
-
-        if (I2C_ISR(I2C2) & (1<<3)) {
-            led_reg_received = false;
-            I2C_ICR(I2C2) |= (1<<3);
-        }
-
-        if (i2c_received_data(I2C2)) {
-            uint8_t recvd = i2c_get_data(I2C2);
-            if (!led_reg_received) {
-                led_reg_received = true;
-                led_reg = recvd;
-            } else {
-                switch(led_reg) {
-                    case 1:
-                        led_b = recvd << 4;
-                        break;
-                    case 2:
-                        led_g = recvd << 4;
-                        break;
-                    case 3:
-                        led_r = recvd << 4;
-                        break;
-                }
-                led_reg++;
-            }
-//             char temp[33];
-//             char msg[50];
-//             msg[0] = 0;
-//             strcat(msg, itoa((recvd>>4)&0xf,temp,16));
-//             strcat(msg, itoa(recvd&0xf,temp,16));
-//             uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", msg);
-        }
-
-        if (I2C_ISR(I2C2) & (1<<10)) {
-            I2C_ICR(I2C2) |= (1<<10);
-//             uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "I2C", "OVR");
-        }
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
             union shared_msg_payload_u msg;
