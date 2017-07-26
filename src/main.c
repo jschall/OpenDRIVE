@@ -156,7 +156,7 @@ static void spi_init(void) {
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO3); // SCK
     gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
 
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_2);
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_4);
     spi_set_clock_polarity_0(SPI3);
     spi_set_clock_phase_1(SPI3);
     spi_set_full_duplex_mode(SPI3);

@@ -27,13 +27,13 @@ static uint32_t _led_write(uint32_t num_leds, struct led_color_s* led_colors, le
 
     uint8_t* led_color_byte_array = (uint8_t*)led_colors;
 
-    uint32_t output_idx = 0;
-    for (; output_idx < (uint8_t)(header_min_byte_length-1); output_idx++) {
+    uint32_t output_idx;
+    for (output_idx = 0; output_idx < (uint8_t)(header_min_byte_length-1); output_idx++) {
         write_byte(output_idx, 0, context);
     }
 
-    uint16_t out_byte = 0;
-    out_byte |= (led_color_byte_array[0] >> 1) | 0x80;
+    uint16_t out_byte;
+    out_byte = ((uint16_t)led_color_byte_array[0]>>1)|0x80U;
     out_byte >>= num_leading_zeros%8;
     write_byte(output_idx, out_byte&0xFFU, context);
     output_idx++;
@@ -50,7 +50,7 @@ static uint32_t _led_write(uint32_t num_leds, struct led_color_s* led_colors, le
 
         if (led_second_byte_idx%3 == 0) {
             // byte contains delimiter
-            out_byte |= (led_color_byte_array[led_second_byte_idx] >> 1) | 0x80;
+            out_byte |= (led_color_byte_array[led_second_byte_idx] >> 1) | 0x80U;
             led_data_bit_offset += 7;
         } else {
             out_byte |= led_color_byte_array[led_second_byte_idx];
