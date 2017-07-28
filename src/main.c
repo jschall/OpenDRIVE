@@ -97,10 +97,6 @@ static bool restart_request_handler(void)
     return true;
 }
 
-static void uavcan_ready_handler(void) {
-
-}
-
 static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s transfer_info, uint8_t source_node_id, const char* path)
 {
     if (source_node_id == 0) {
@@ -147,21 +143,14 @@ static void spi_init(void) {
     gpio_set(GPIOA, GPIO5); // MS5611 nCS up
 
     gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
-    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO3); // SCK
+    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO3); // SCK
     gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
 
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_4);
-    spi_set_clock_polarity_0(SPI3);
-    spi_set_clock_phase_1(SPI3);
     spi_set_full_duplex_mode(SPI3);
     spi_set_unidirectional_mode(SPI3);
-    spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
-    spi_send_msb_first(SPI3);
     spi_enable_software_slave_management(SPI3);
     spi_set_nss_high(SPI3);
-    spi_fifo_reception_threshold_8bit(SPI3);
     spi_set_master_mode(SPI3);
-    spi_enable(SPI3);
 }
 
 static void i2c_slave_init(void) {
@@ -197,13 +186,13 @@ static void toshibaled_interface_recv_byte(uint8_t recv_byte_idx, uint8_t recv_b
     } else {
         switch(led_reg) {
             case 1:
-                led_b = recv_byte << 4;
+                led_b = ((recv_byte << 4)&0xf0) | (recv_byte&0x0f);
                 break;
             case 2:
-                led_g = recv_byte << 4;
+                led_g = ((recv_byte << 4)&0xf0) | (recv_byte&0x0f);
                 break;
             case 3:
-                led_r = recv_byte << 4;
+                led_r = ((recv_byte << 4)&0xf0) | (recv_byte&0x0f);
                 break;
         }
         led_reg++;
@@ -220,27 +209,130 @@ void i2c2_ev_exti24_isr(void) {
     if (i2c_received_data(I2C2)) {
         uint8_t recv_byte = i2c_get_data(I2C2); // reading clears our interrupt flag
         switch(i2c2_transfer_address) {
-            case 0x55: {
+            case 0x55:
                 toshibaled_interface_recv_byte(i2c2_recv_byte_idx, recv_byte);
                 break;
-            }
         }
         i2c2_recv_byte_idx++;
     }
 }
 
+static void icm_init(void) {
+    // setup SPI for ICM
+    spi_disable(SPI3);
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_16); // <7mhz
+    spi_set_clock_polarity_1(SPI3);
+    spi_set_clock_phase_1(SPI3);
+    spi_set_data_size(SPI3, SPI_CR2_DS_16BIT);
+    spi_send_msb_first(SPI3);
+    spi_fifo_reception_threshold_16bit(SPI3);
+    spi_enable(SPI3);
+
+
+    gpio_clear(GPIOB, GPIO0); // ICM nCS down
+    __asm__("nop"); // min 7ns
+
+    uint16_t cmd, ret;
+
+    cmd = (0x80|0x00)<<8; // WHOAMI
+    ret = spi_xfer(SPI3, cmd);
+
+    // bring ICM out of sleep and use internal oscillator
+    cmd = (0x06<<8)|0x00;
+    spi_xfer(SPI3,cmd);
+
+    // sleep 10us
+    usleep(10);
+
+    cmd = (0x03<<8)|(1<<5); // I2C master enable
+    spi_xfer(SPI3,cmd);
+
+    cmd = (0x0f<<8)|(1<<1); // BYPASS_EN = 1
+    spi_xfer(SPI3,cmd);
+
+    // set up ICM's I2C master
+    cmd = (0x7F<<8)|3; // user bank 3
+    spi_xfer(SPI3,cmd);
+
+    cmd = (0x01<<8)|7; // I2C_MST_CLK = 7 per table 23
+    spi_xfer(SPI3,cmd);
+
+//     cmd = (0x02<<8)|(1<<7); // DELAY_ES_SHADOW = 1
+//     spi_xfer(SPI3,cmd);
+
+    cmd = (0x03<<8)|0x0C|0x80; // I2C_ID_0 = 0x0C, read
+    spi_xfer(SPI3,cmd);
+
+    cmd = (0x04<<8)|0x01; // I2C_SLV0_REG = 0x01
+    spi_xfer(SPI3,cmd);
+
+    cmd = (0x05<<8)|(1<<0)|(1<<7); // I2C_SLV0_LENG = 1, I2C_SLV0_EN = 1
+    spi_xfer(SPI3,cmd);
+
+    cmd = (0x7F<<8)|0; // user bank 0
+    spi_xfer(SPI3,cmd);
+
+    for(uint8_t i=0;i<36;i++) __asm__("nop"); // min 500ns
+    gpio_set(GPIOB, GPIO0); // ICM nCS up
+    for(uint8_t i=0;i<4;i++) __asm__("nop"); // min 50ns
+
+    usleep(100000);
+
+    gpio_clear(GPIOB, GPIO0); // ICM nCS down
+    __asm__("nop"); // min 7ns
+
+    cmd = (0x80|0x03)<<8;
+    ret = spi_xfer(SPI3,cmd);
+
+    char temp[33];
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK0", itoa(ret,temp,16));
+
+    cmd = (0x80|0x17)<<8; // I2C_MST_STATUS
+    ret = spi_xfer(SPI3, cmd);
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK1", itoa(ret,temp,16));
+
+    cmd = (0x80|0x3B)<<8; // EXT_SLV_SENS_DATA_00
+    ret = spi_xfer(SPI3, cmd);
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK2", itoa(ret,temp,16));
+
+    for(uint8_t i=0;i<36;i++) __asm__("nop"); // min 500ns
+    gpio_set(GPIOB, GPIO0); // ICM nCS up
+    for(uint8_t i=0;i<4;i++) __asm__("nop"); // min 50ns
+
+}
+
+static void icm_update(void) {
+
+}
+
 static void led_update(void) {
-
-
     struct led_color_s led_colors[4];
-    uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
+    uint8_t num_leds = 4;
     for(uint8_t i=0; i<num_leds; i++) {
         led_make_brg_color_rgb(led_r,led_g,led_b,&led_colors[i]);
     }
 
+    // setup SPI for LED
+    spi_disable(SPI3);
+    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_32);
+    spi_set_clock_polarity_0(SPI3);
+    spi_set_clock_phase_0(SPI3);
+    spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
+    spi_send_msb_first(SPI3);
+    spi_fifo_reception_threshold_8bit(SPI3);
+    spi_enable(SPI3);
+
     gpio_set(GPIOA, GPIO15);
+    for(uint8_t i=0;i<30;i++) __asm__("nop");
     led_write(num_leds, led_colors, led_spi_send_byte);
+    led_spi_send_byte(0); // seems to be required for last LED to set color
+    for(uint8_t i=0;i<30;i++) __asm__("nop");
     gpio_clear(GPIOA, GPIO15);
+}
+
+static void uavcan_ready_handler(void) {
+    icm_init();
+    icm_update();
 }
 
 static uint32_t get_canbus_baud(void) {
@@ -306,10 +398,16 @@ int main(void)
     spi_init();
     i2c_slave_init();
 
+    uint32_t tprint_us = 0;
     // main loop
     while(1) {
         uavcan_update();
-        led_update();
+
+        uint32_t tnow_us = micros();
+        if (tnow_us-tprint_us > 8333) {
+            led_update();
+            tprint_us = tnow_us;
+        }
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
             union shared_msg_payload_u msg;

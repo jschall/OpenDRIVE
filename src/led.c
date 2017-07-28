@@ -73,8 +73,8 @@ static void _led_call_write_byte_cb(uint32_t index, uint8_t byte, void* context)
     ((led_write_byte_func_t)context)(byte);
 }
 
-void led_write(uint32_t num_leds, struct led_color_s* led_colors, led_write_byte_func_t write_byte) {
-    _led_write(num_leds, led_colors, _led_call_write_byte_cb, (void*)write_byte);
+uint32_t led_write(uint32_t num_leds, struct led_color_s* led_colors, led_write_byte_func_t write_byte) {
+    return _led_write(num_leds, led_colors, _led_call_write_byte_cb, (void*)write_byte);
 }
 
 static void _led_write_buf_cb(uint32_t index, uint8_t byte, void* context) {
