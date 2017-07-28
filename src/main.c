@@ -28,6 +28,7 @@
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/i2c.h>
+#include <libopencm3/cm3/nvic.h>
 #include <math.h>
 #include "led.h"
 
@@ -179,40 +180,57 @@ static void i2c_slave_init(void) {
     i2c_set_7bit_addr_mode(I2C2);
     I2C_OAR1(I2C2) = (0x55&0xFF) << 1;
     I2C_OAR1(I2C2) |= (1<<15);
+    nvic_enable_irq(NVIC_I2C2_EV_EXTI24_IRQ);
+    I2C_CR1(I2C2) |= (1<<2); // RXIE
+    I2C_CR1(I2C2) |= (1<<3); // ADDRIE
     i2c_peripheral_enable(I2C2);
 }
 
 static uint8_t led_r,led_g,led_b;
 static uint8_t led_reg;
-static bool led_reg_received;
+static uint8_t i2c2_recv_byte_idx;
+static uint8_t i2c2_transfer_address;
 
-static void led_update(void) {
-    // TODO use interrupts to avoid clock stretching
-    if (I2C_ISR(I2C2) & (1<<3)) {
-        led_reg_received = false;
+static void toshibaled_interface_recv_byte(uint8_t recv_byte_idx, uint8_t recv_byte) {
+    if (recv_byte_idx == 0) {
+        led_reg = recv_byte;
+    } else {
+        switch(led_reg) {
+            case 1:
+                led_b = recv_byte << 4;
+                break;
+            case 2:
+                led_g = recv_byte << 4;
+                break;
+            case 3:
+                led_r = recv_byte << 4;
+                break;
+        }
+        led_reg++;
+    }
+}
+
+void i2c2_ev_exti24_isr(void) {
+    if (I2C_ISR(I2C2) & (1<<3)) { // ADDR
+        i2c2_transfer_address = (I2C_ISR(I2C2) >> 17) & 0x7FU; // ADDCODE
+        i2c2_recv_byte_idx = 0;
         I2C_ICR(I2C2) |= (1<<3);
     }
 
     if (i2c_received_data(I2C2)) {
-        uint8_t recvd = i2c_get_data(I2C2);
-        if (!led_reg_received) {
-            led_reg_received = true;
-            led_reg = recvd;
-        } else {
-            switch(led_reg) {
-                case 1:
-                    led_b = recvd << 4;
-                    break;
-                case 2:
-                    led_g = recvd << 4;
-                    break;
-                case 3:
-                    led_r = recvd << 4;
-                    break;
+        uint8_t recv_byte = i2c_get_data(I2C2); // reading clears our interrupt flag
+        switch(i2c2_transfer_address) {
+            case 0x55: {
+                toshibaled_interface_recv_byte(i2c2_recv_byte_idx, recv_byte);
+                break;
             }
-            led_reg++;
         }
+        i2c2_recv_byte_idx++;
     }
+}
+
+static void led_update(void) {
+
 
     struct led_color_s led_colors[4];
     uint8_t num_leds = sizeof(led_colors)/sizeof(led_colors[0]);
