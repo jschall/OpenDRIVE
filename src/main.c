@@ -217,7 +217,7 @@ void i2c2_ev_exti24_isr(void) {
     }
 }
 
-static void icm_init(void) {
+static void icm_begin(void) {
     // setup SPI for ICM
     spi_disable(SPI3);
     spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_16); // <7mhz
@@ -228,81 +228,95 @@ static void icm_init(void) {
     spi_fifo_reception_threshold_16bit(SPI3);
     spi_enable(SPI3);
 
-
     gpio_clear(GPIOB, GPIO0); // ICM nCS down
     __asm__("nop"); // min 7ns
+}
 
-    uint16_t cmd, ret;
-
-    cmd = (0x80|0x00)<<8; // WHOAMI
-    ret = spi_xfer(SPI3, cmd);
-
-    // bring ICM out of sleep and use internal oscillator
-    cmd = (0x06<<8)|0x00;
-    spi_xfer(SPI3,cmd);
-
-    // sleep 10us
-    usleep(10);
-
-    cmd = (0x03<<8)|(1<<5); // I2C master enable
-    spi_xfer(SPI3,cmd);
-
-    cmd = (0x0f<<8)|(1<<1); // BYPASS_EN = 1
-    spi_xfer(SPI3,cmd);
-
-    // set up ICM's I2C master
-    cmd = (0x7F<<8)|3; // user bank 3
-    spi_xfer(SPI3,cmd);
-
-    cmd = (0x01<<8)|7; // I2C_MST_CLK = 7 per table 23
-    spi_xfer(SPI3,cmd);
-
-//     cmd = (0x02<<8)|(1<<7); // DELAY_ES_SHADOW = 1
-//     spi_xfer(SPI3,cmd);
-
-    cmd = (0x03<<8)|0x0C|0x80; // I2C_ID_0 = 0x0C, read
-    spi_xfer(SPI3,cmd);
-
-    cmd = (0x04<<8)|0x01; // I2C_SLV0_REG = 0x01
-    spi_xfer(SPI3,cmd);
-
-    cmd = (0x05<<8)|(1<<0)|(1<<7); // I2C_SLV0_LENG = 1, I2C_SLV0_EN = 1
-    spi_xfer(SPI3,cmd);
-
-    cmd = (0x7F<<8)|0; // user bank 0
-    spi_xfer(SPI3,cmd);
-
-    for(uint8_t i=0;i<36;i++) __asm__("nop"); // min 500ns
+static void icm_end(void) {
+    for(uint8_t i=0; i<36; i++) __asm__("nop"); // min 500ns
     gpio_set(GPIOB, GPIO0); // ICM nCS up
-    for(uint8_t i=0;i<4;i++) __asm__("nop"); // min 50ns
+    for(uint8_t i=0; i<36; i++) __asm__("nop"); // min 500ns
+}
+
+
+#include "icm_defines.h"
+
+static int8_t icm_user_bank = 0;
+
+static void icm_set_user_bank(uint8_t user_bank) {
+    if (user_bank != icm_user_bank) {
+        icm_begin();
+        spi_xfer(SPI3, (ICM20948_REG_BANK_SEL<<8)|(user_bank<<4));
+        icm_end();
+        icm_user_bank = user_bank;
+    }
+}
+
+static uint8_t icm_read_reg(uint8_t user_bank, uint8_t reg) {
+    icm_set_user_bank(user_bank);
+    icm_begin();
+    uint8_t ret = spi_xfer(SPI3, (reg|0x80)<<8);
+    icm_end();
+    return ret;
+}
+
+static void icm_write_reg(uint8_t user_bank, uint8_t reg, uint8_t value) {
+    icm_set_user_bank(user_bank);
+    icm_begin();
+    spi_xfer(SPI3, (reg<<8)|value);
+    icm_end();
+}
+
+static void icm_init(void) {
+    uint16_t user_ctrl = icm_read_reg(ICM20948_USER_CTRL);
+    icm_write_reg(ICM20948_USER_CTRL, user_ctrl&~(1<<5));
+    usleep(10000);
+    icm_write_reg(ICM20948_PWR_MGMT_1, 1<<7);
+    usleep(100000);
+//     icm_write_reg(ICM20948_INT_PIN_CFG, 1<<1);
+    icm_write_reg(ICM20948_USER_CTRL, (1<<4)|(1<<5)); // disable i2c interface, enable i2c master
+    icm_write_reg(ICM20948_PWR_MGMT_1, 1);
+    usleep(15000);
+    icm_write_reg(ICM20948_PWR_MGMT_2, 0);
+
+    icm_write_reg(ICM20948_I2C_MST_CTRL, (1<<4)|7);
+
+    icm_write_reg(ICM20948_I2C_SLV0_CTRL, 0);
+    icm_write_reg(ICM20948_I2C_SLV0_ADDR, AK09916_I2C_ADDR|0x80);
+    icm_write_reg(ICM20948_I2C_SLV0_REG, 0);
+    icm_write_reg(ICM20948_I2C_SLV0_CTRL, 0x80|2);
+    uint8_t slv0_ctrl = icm_read_reg(ICM20948_I2C_SLV0_CTRL);
 
     usleep(100000);
 
-    gpio_clear(GPIOB, GPIO0); // ICM nCS down
-    __asm__("nop"); // min 7ns
-
-    cmd = (0x80|0x03)<<8;
-    ret = spi_xfer(SPI3,cmd);
+    uint8_t data00 = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_00);
+    uint8_t data01 = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_01);
+    uint8_t i2c_status = icm_read_reg(ICM20948_I2C_MST_STATUS);
+    uint8_t whoami = icm_read_reg(ICM20948_WHO_AM_I);
+    icm_end();
 
     char temp[33];
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK0", itoa(ret,temp,16));
-
-    cmd = (0x80|0x17)<<8; // I2C_MST_STATUS
-    ret = spi_xfer(SPI3, cmd);
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK1", itoa(ret,temp,16));
-
-    cmd = (0x80|0x3B)<<8; // EXT_SLV_SENS_DATA_00
-    ret = spi_xfer(SPI3, cmd);
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK2", itoa(ret,temp,16));
-
-    for(uint8_t i=0;i<36;i++) __asm__("nop"); // min 500ns
-    gpio_set(GPIOB, GPIO0); // ICM nCS up
-    for(uint8_t i=0;i<4;i++) __asm__("nop"); // min 50ns
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK0", itoa(whoami,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK1", itoa(i2c_status,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK2", itoa(slv0_ctrl,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK3", itoa(data00,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK4", itoa(data01,temp,16));
 
 }
 
 static void icm_update(void) {
+    static uint32_t last_print_us;
+    uint32_t tnow_us = micros();
 
+    if (tnow_us-last_print_us > 200000) {
+        int8_t gyr_z_h = icm_read_reg(ICM20948_GYRO_ZOUT_H);
+        int8_t gyr_z_l = icm_read_reg(ICM20948_GYRO_ZOUT_L);
+        int16_t gyr_z = (((uint16_t)gyr_z_h)<<8)|gyr_z_l;
+
+        char temp[33];
+        uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "GYR", itoa(gyr_z,temp,10));
+        last_print_us = tnow_us;
+    }
 }
 
 static void led_update(void) {
@@ -332,7 +346,6 @@ static void led_update(void) {
 
 static void uavcan_ready_handler(void) {
     icm_init();
-    icm_update();
 }
 
 static uint32_t get_canbus_baud(void) {
@@ -402,6 +415,8 @@ int main(void)
     // main loop
     while(1) {
         uavcan_update();
+        icm_update();
+
 
         uint32_t tnow_us = micros();
         if (tnow_us-tprint_us > 8333) {
