@@ -411,14 +411,18 @@ static void uavcan_ready_handler(void) {
     icm_init();
 }
 
-static uint32_t get_canbus_baud(void) {
-    uint32_t initial_canbus_baud;
+static bool canbus_autobaud_running;
+static struct canbus_autobaud_state_s autobaud_state;
+static void on_canbus_baudrate_confirmed(uint32_t canbus_baud);
+
+static void begin_canbus_autobaud(void) {
+    uint32_t canbus_baud;
     if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
-        initial_canbus_baud = shared_msg.canbus_info.baudrate;
+        canbus_baud = shared_msg.canbus_info.baudrate;
     } else if (canbus_baudrate_valid(shared_app_descriptor.canbus_baudrate)) {
-        initial_canbus_baud = shared_app_descriptor.canbus_baudrate;
+        canbus_baud = shared_app_descriptor.canbus_baudrate;
     } else {
-        initial_canbus_baud = 1000000;
+        canbus_baud = 1000000;
     }
 
     bool canbus_autobaud_enable;
@@ -430,33 +434,29 @@ static uint32_t get_canbus_baud(void) {
         canbus_autobaud_enable = true;
     }
 
-    uint32_t canbus_baud = initial_canbus_baud;
-    uint32_t autobaud_begin_us = micros();
     if (canbus_autobaud_enable) {
-        struct canbus_autobaud_state_s autobaud_state;
-
         canbus_autobaud_start(&autobaud_state, canbus_baud, CANBUS_AUTOBAUD_SWITCH_INTERVAL_US);
-
-        while (!(autobaud_state.success || micros()-autobaud_begin_us > CANBUS_AUTOBAUD_TIMEOUT_US)) {
-            canbus_baud = canbus_autobaud_update(&autobaud_state);
-        }
-
-        if (!autobaud_state.success) {
-            canbus_baud = initial_canbus_baud;
-        }
+        canbus_autobaud_running = true;
+    } else {
+        on_canbus_baudrate_confirmed(canbus_baud);
     }
-    return canbus_baud;
 }
 
-int main(void)
-{
-    init_clock();
-    timing_init();
+static void update_canbus_autobaud(void) {
+    if (!canbus_autobaud_running) {
+        return;
+    }
 
-    shared_msg_valid = shared_msg_check_and_retreive(&shared_msgid, &shared_msg);
-    shared_msg_clear();
+    uint32_t canbus_baud = canbus_autobaud_update(&autobaud_state);
+    if (autobaud_state.success) {
+        on_canbus_baudrate_confirmed(canbus_baud);
+        canbus_autobaud_running = false;
+    }
 
-    canbus_init(get_canbus_baud(), false);
+}
+
+static void on_canbus_baudrate_confirmed(uint32_t canbus_baud) {
+    canbus_init(canbus_baud, false);
     uavcan_init();
 
     set_uavcan_node_info();
@@ -470,6 +470,17 @@ int main(void)
     } else if (shared_app_descriptor.canbus_local_node_id > 0 && shared_app_descriptor.canbus_local_node_id <= 127) {
         uavcan_set_node_id(shared_msg.canbus_info.local_node_id);
     }
+}
+
+int main(void)
+{
+    init_clock();
+    timing_init();
+
+    shared_msg_valid = shared_msg_check_and_retreive(&shared_msgid, &shared_msg);
+    shared_msg_clear();
+
+    begin_canbus_autobaud();
 
     i2c_slave_init();
 
