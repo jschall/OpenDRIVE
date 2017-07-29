@@ -1,0 +1,25 @@
+- MVP:
+    - Bootloader:
+        - can flash application via UAVCAN firmware update mechanism
+        - validates application via CRC64, reports critical state if application is invalid
+        - reports application software version data per UAVCAN specification
+        - switches LEDs off immediately
+        - boots immediately if the I2C slave interface is connected to a master
+        - follows guidance provided by loaded application vis-a-vis:
+            - Boot timeout (default = forever)
+            - UAVCAN initial baud rate (default = 1e6)
+            - UAVCAN auto baud enable (default = enabled)
+            - UAVCAN initial node ID (default = dynamically allocated)
+        - provides data to application:
+            - Hardware/UAVCAN node name
+            - Hardware version
+            - UAVCAN baud rate, if detected
+            - UAVCAN local node id, if detected or specified by application
+            - Boot reason (firmware update, timeout, reboot command, or I2C slave interface present)
+
+    - Application:
+        - Provides driver for onboard ICM-20948 (compass only)
+        - Provides driver for onboard LEDs
+        - Tristates GPS UART pins
+        - Provides functional AC3.5-compliant (toshibaLED) LED protocol on I2C slave interface
+        - Provides functional AC3.5-compliant (HMC5983 or AK09916) compass protocol on I2C slave interface
