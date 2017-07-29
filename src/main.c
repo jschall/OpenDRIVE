@@ -126,33 +126,6 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
     scb_reset_system();
 }
 
-static void led_spi_send_byte(uint8_t byte) {
-    spi_send8(SPI3, byte);
-    while (SPI_SR(SPI3) & SPI_SR_BSY);
-}
-
-static void spi_init(void) {
-    rcc_periph_clock_enable(RCC_SPI3);
-    rcc_periph_clock_enable(RCC_GPIOA);
-    rcc_periph_clock_enable(RCC_GPIOB);
-    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO15); // LED CS
-    gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5); // MS5611 nCS
-    gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO0); // ICM nCS
-    gpio_clear(GPIOA, GPIO15); // LED CS down
-    gpio_set(GPIOB, GPIO0); // ICM nCS up
-    gpio_set(GPIOA, GPIO5); // MS5611 nCS up
-
-    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
-    gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO3); // SCK
-    gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
-
-    spi_set_full_duplex_mode(SPI3);
-    spi_set_unidirectional_mode(SPI3);
-    spi_enable_software_slave_management(SPI3);
-    spi_set_nss_high(SPI3);
-    spi_set_master_mode(SPI3);
-}
-
 static void i2c_slave_init(void) {
     rcc_periph_clock_enable(RCC_I2C2);
     i2c_reset(I2C2);
@@ -217,27 +190,123 @@ void i2c2_ev_exti24_isr(void) {
     }
 }
 
-static void icm_begin(void) {
-    // setup SPI for ICM
-    spi_disable(SPI3);
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_16); // <7mhz
-    spi_set_clock_polarity_1(SPI3);
-    spi_set_clock_phase_1(SPI3);
-    spi_set_data_size(SPI3, SPI_CR2_DS_16BIT);
+enum spi_device_t {
+    SPI_DEVICE_UNINITIALIZED = 0,
+    SPI_DEVICE_UBLED,
+    SPI_DEVICE_ICM,
+    SPI_DEVICE_MS5611,
+    NUM_SPI_DEVICES
+};
+
+static enum spi_device_t current_spi_device;
+
+static void spi_assert_chip_select(enum spi_device_t spi_device) {
+    switch(spi_device) {
+        case SPI_DEVICE_UBLED:
+            gpio_set(GPIOA, GPIO15);
+            break;
+        case SPI_DEVICE_ICM:
+            gpio_clear(GPIOB, GPIO0);
+            break;
+        case SPI_DEVICE_MS5611:
+            gpio_clear(GPIOA, GPIO5);
+            break;
+        default:
+            break;
+    }
+}
+
+static void spi_deassert_chip_select(enum spi_device_t spi_device) {
+    switch(spi_device) {
+        case SPI_DEVICE_UBLED:
+            gpio_clear(GPIOA, GPIO15);
+            break;
+        case SPI_DEVICE_ICM:
+            gpio_set(GPIOB, GPIO0);
+            break;
+        case SPI_DEVICE_MS5611:
+            gpio_set(GPIOA, GPIO5);
+            break;
+        default:
+            break;
+    }
+}
+
+static void spi_begin(enum spi_device_t spi_device) {
+    if (spi_device == current_spi_device) {
+        spi_assert_chip_select(spi_device);
+        return;
+    }
+
+    if (current_spi_device == SPI_DEVICE_UNINITIALIZED) {
+        rcc_periph_clock_enable(RCC_SPI3);
+        rcc_periph_clock_enable(RCC_GPIOA);
+        rcc_periph_clock_enable(RCC_GPIOB);
+        gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO15); // LED CS
+        gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5); // MS5611 nCS
+        gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO0); // ICM nCS
+
+        gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO4|GPIO5); // MISO,MOSI
+        gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLUP, GPIO3); // SCK
+        gpio_set_af(GPIOB, GPIO_AF6, GPIO3|GPIO4|GPIO5);
+    }
+
+    while ((SPI_SR(SPI3) & (0b11<<11)) != 0); // wait for TXFIFO to be empty
+    while (SPI_SR(SPI3) & SPI_SR_BSY); // wait for bsy
+
+    for (uint8_t i=1; i<NUM_SPI_DEVICES; i++) {
+        spi_deassert_chip_select(i);
+    }
+
+    spi_reset(SPI3);
+
+    spi_set_full_duplex_mode(SPI3);
+    spi_set_unidirectional_mode(SPI3);
+    spi_enable_software_slave_management(SPI3);
+    spi_set_nss_high(SPI3);
+    spi_set_master_mode(SPI3);
     spi_send_msb_first(SPI3);
-    spi_fifo_reception_threshold_16bit(SPI3);
+
+    switch(spi_device) {
+        case SPI_DEVICE_UBLED:
+            spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_16); //<30mhz
+            spi_set_clock_polarity_0(SPI3);
+            spi_set_clock_phase_0(SPI3);
+            spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
+            spi_fifo_reception_threshold_8bit(SPI3);
+            break;
+        case SPI_DEVICE_ICM:
+            spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_8); // <7mhz
+            spi_set_clock_polarity_1(SPI3);
+            spi_set_clock_phase_1(SPI3);
+            spi_set_data_size(SPI3, SPI_CR2_DS_16BIT);
+            spi_fifo_reception_threshold_16bit(SPI3);
+            break;
+        default:
+            break;
+    }
+
     spi_enable(SPI3);
-
-    gpio_clear(GPIOB, GPIO0); // ICM nCS down
-    __asm__("nop"); // min 7ns
+    spi_assert_chip_select(spi_device);
+    current_spi_device = spi_device;
 }
 
-static void icm_end(void) {
-    for(uint8_t i=0; i<36; i++) __asm__("nop"); // min 500ns
-    gpio_set(GPIOB, GPIO0); // ICM nCS up
-    for(uint8_t i=0; i<36; i++) __asm__("nop"); // min 500ns
+static void spi_end(void) {
+    while ((SPI_SR(SPI3) & (0b11<<11)) != 0); // wait for TXFIFO to be empty
+    while (SPI_SR(SPI3) & SPI_SR_BSY); // wait for bsy
+    spi_deassert_chip_select(current_spi_device);
 }
 
+static uint16_t icm_spi_transfer(uint16_t data) {
+    spi_begin(SPI_DEVICE_ICM);
+
+    SPI_DR(SPI3) = data;
+    while (!(SPI_SR(SPI3) & SPI_SR_RXNE));
+    uint16_t ret = SPI_DR(SPI3);
+
+    spi_end();
+    return ret;
+}
 
 #include "icm_defines.h"
 
@@ -245,36 +314,37 @@ static int8_t icm_user_bank = 0;
 
 static void icm_set_user_bank(uint8_t user_bank) {
     if (user_bank != icm_user_bank) {
-        icm_begin();
-        spi_xfer(SPI3, (ICM20948_REG_BANK_SEL<<8)|(user_bank<<4));
-        icm_end();
+        icm_spi_transfer((ICM20948_REG_BANK_SEL<<8)|(user_bank<<4));
         icm_user_bank = user_bank;
     }
 }
 
-static uint8_t icm_read_reg(uint8_t user_bank, uint8_t reg) {
+static uint16_t icm_read_reg(uint8_t user_bank, uint8_t reg) {
     icm_set_user_bank(user_bank);
-    icm_begin();
-    uint8_t ret = spi_xfer(SPI3, (reg|0x80)<<8);
-    icm_end();
-    return ret;
+
+    return icm_spi_transfer(((uint16_t)reg|0x80)<<8);
 }
 
 static void icm_write_reg(uint8_t user_bank, uint8_t reg, uint8_t value) {
     icm_set_user_bank(user_bank);
-    icm_begin();
-    spi_xfer(SPI3, (reg<<8)|value);
-    icm_end();
+    icm_spi_transfer((reg<<8)|value);
 }
 
 static void icm_init(void) {
-    uint16_t user_ctrl = icm_read_reg(ICM20948_USER_CTRL);
-    icm_write_reg(ICM20948_USER_CTRL, user_ctrl&~(1<<5));
+//     volatile uint16_t user_ctrl = icm_read_reg(ICM20948_USER_CTRL);
+//     icm_write_reg(ICM20948_USER_CTRL, user_ctrl&~(1<<5)); // I2C_MST_EN
     usleep(10000);
-    icm_write_reg(ICM20948_PWR_MGMT_1, 1<<7);
+    icm_write_reg(ICM20948_PWR_MGMT_1, 1<<7); // DEVICE_RESET
     usleep(100000);
+    icm_write_reg(ICM20948_PWR_MGMT_1, 1);
+    usleep(15000);
+//     usleep(100000);
 //     icm_write_reg(ICM20948_INT_PIN_CFG, 1<<1);
     icm_write_reg(ICM20948_USER_CTRL, (1<<4)|(1<<5)); // disable i2c interface, enable i2c master
+    usleep(10000);
+
+    uint8_t user_ctrl = icm_read_reg(ICM20948_USER_CTRL);
+
     icm_write_reg(ICM20948_PWR_MGMT_1, 1);
     usleep(15000);
     icm_write_reg(ICM20948_PWR_MGMT_2, 0);
@@ -285,63 +355,56 @@ static void icm_init(void) {
     icm_write_reg(ICM20948_I2C_SLV0_ADDR, AK09916_I2C_ADDR|0x80);
     icm_write_reg(ICM20948_I2C_SLV0_REG, 0);
     icm_write_reg(ICM20948_I2C_SLV0_CTRL, 0x80|2);
-    uint8_t slv0_ctrl = icm_read_reg(ICM20948_I2C_SLV0_CTRL);
 
     usleep(100000);
-
+    uint8_t whoami = icm_read_reg(ICM20948_WHO_AM_I);
     uint8_t data00 = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_00);
     uint8_t data01 = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_01);
-    uint8_t i2c_status = icm_read_reg(ICM20948_I2C_MST_STATUS);
-    uint8_t whoami = icm_read_reg(ICM20948_WHO_AM_I);
-    icm_end();
 
     char temp[33];
     uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK0", itoa(whoami,temp,16));
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK1", itoa(i2c_status,temp,16));
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK2", itoa(slv0_ctrl,temp,16));
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK3", itoa(data00,temp,16));
-    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK4", itoa(data01,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK1", itoa(user_ctrl,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK2", itoa(data00,temp,16));
+    uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "AK3", itoa(data01,temp,16));
 
 }
 
 static void icm_update(void) {
-    static uint32_t last_print_us;
-    uint32_t tnow_us = micros();
+}
 
-    if (tnow_us-last_print_us > 200000) {
-        int8_t gyr_z_h = icm_read_reg(ICM20948_GYRO_ZOUT_H);
-        int8_t gyr_z_l = icm_read_reg(ICM20948_GYRO_ZOUT_L);
-        int16_t gyr_z = (((uint16_t)gyr_z_h)<<8)|gyr_z_l;
-
-        char temp[33];
-        uavcan_send_debug_logmessage(UAVCAN_LOGLEVEL_DEBUG, "GYR", itoa(gyr_z,temp,10));
-        last_print_us = tnow_us;
-    }
+static void led_spi_send_byte(uint8_t byte) {
+    while (!(SPI_SR(SPI3) & SPI_SR_TXE)); // wait for bus to become available
+    SPI_DR8(SPI3) = byte;
 }
 
 static void led_update(void) {
+    static uint32_t last_update_us;
+    uint32_t tnow_us = micros();
+    if (tnow_us-last_update_us < 8333) {
+        return;
+    }
+    last_update_us = tnow_us;
+
+#if 0
+    led_r = (millis()/1000)%3 == 0 ? 255 : 0;
+    led_g = (millis()/1000)%3 == 1 ? 255 : 0;
+    led_b = (millis()/1000)%3 == 2 ? 255 : 0;
+#endif
+
+
     struct led_color_s led_colors[4];
     uint8_t num_leds = 4;
     for(uint8_t i=0; i<num_leds; i++) {
         led_make_brg_color_rgb(led_r,led_g,led_b,&led_colors[i]);
     }
 
-    // setup SPI for LED
-    spi_disable(SPI3);
-    spi_set_baudrate_prescaler(SPI3, SPI_CR1_BR_FPCLK_DIV_32);
-    spi_set_clock_polarity_0(SPI3);
-    spi_set_clock_phase_0(SPI3);
-    spi_set_data_size(SPI3, SPI_CR2_DS_8BIT);
-    spi_send_msb_first(SPI3);
-    spi_fifo_reception_threshold_8bit(SPI3);
-    spi_enable(SPI3);
-
-    gpio_set(GPIOA, GPIO15);
+    spi_begin(SPI_DEVICE_UBLED);
     for(uint8_t i=0;i<30;i++) __asm__("nop");
     led_write(num_leds, led_colors, led_spi_send_byte);
     led_spi_send_byte(0); // seems to be required for last LED to set color
     for(uint8_t i=0;i<30;i++) __asm__("nop");
-    gpio_clear(GPIOA, GPIO15);
+
+    spi_end();
 }
 
 static void uavcan_ready_handler(void) {
@@ -408,21 +471,13 @@ int main(void)
         uavcan_set_node_id(shared_msg.canbus_info.local_node_id);
     }
 
-    spi_init();
     i2c_slave_init();
 
-    uint32_t tprint_us = 0;
     // main loop
     while(1) {
         uavcan_update();
         icm_update();
-
-
-        uint32_t tnow_us = micros();
-        if (tnow_us-tprint_us > 8333) {
-            led_update();
-            tprint_us = tnow_us;
-        }
+        led_update();
 
         if (restart_req && (micros() - restart_req_us) > 1000) {
             union shared_msg_payload_u msg;
