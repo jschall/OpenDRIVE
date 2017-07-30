@@ -33,8 +33,15 @@
 #include "led.h"
 
 
-#define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000100 // not exactly one second, to avoid potential race conditions
+#define CANBUS_AUTOBAUD_SWITCH_INTERVAL_US 1000000
 #define CANBUS_AUTOBAUD_TIMEOUT_US 10000000
+
+static volatile const struct shared_app_parameters_s shared_app_parameters __attribute__((section(".app_descriptor"),used)) = {
+    .boot_delay_sec = APP_CONFIG_BOOT_DELAY_SEC,
+    .canbus_disable_auto_baud = !APP_CONFIG_CAN_AUTO_BAUD_ENABLE,
+    .canbus_baudrate = APP_CONFIG_CAN_DEFAULT_BAUDRATE,
+    .canbus_local_node_id = APP_CONFIG_CAN_LOCAL_NODE_ID
+};
 
 static volatile const struct shared_app_descriptor_s shared_app_descriptor __attribute__((section(".app_descriptor"),used)) = {
     .signature = SHARED_APP_DESCRIPTOR_SIGNATURE,
@@ -43,10 +50,9 @@ static volatile const struct shared_app_descriptor_s shared_app_descriptor __att
     .vcs_commit = GIT_HASH,
     .major_version = 1,
     .minor_version = 0,
-    .boot_delay_sec = APP_CONFIG_BOOT_DELAY_SEC,
-    .canbus_disable_auto_baud = !APP_CONFIG_CAN_AUTO_BAUD_ENABLE,
-    .canbus_baudrate = APP_CONFIG_CAN_DEFAULT_BAUDRATE,
-    .canbus_local_node_id = APP_CONFIG_CAN_LOCAL_NODE_ID
+    .parameters_fmt = SHARED_APP_PARAMETERS_FMT,
+    .parameters_ignore_crc64 = true,
+    .parameters = {&shared_app_parameters, 0}
 };
 
 static bool restart_req = false;
@@ -419,8 +425,8 @@ static void begin_canbus_autobaud(void) {
     uint32_t canbus_baud;
     if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
         canbus_baud = shared_msg.canbus_info.baudrate;
-    } else if (canbus_baudrate_valid(shared_app_descriptor.canbus_baudrate)) {
-        canbus_baud = shared_app_descriptor.canbus_baudrate;
+    } else if (canbus_baudrate_valid(shared_app_parameters.canbus_baudrate)) {
+        canbus_baud = shared_app_parameters.canbus_baudrate;
     } else {
         canbus_baud = 1000000;
     }
@@ -428,7 +434,7 @@ static void begin_canbus_autobaud(void) {
     bool canbus_autobaud_enable;
     if (shared_msg_valid && canbus_baudrate_valid(shared_msg.canbus_info.baudrate)) {
         canbus_autobaud_enable = false;
-    } else if (shared_app_descriptor.canbus_disable_auto_baud) {
+    } else if (shared_app_parameters.canbus_disable_auto_baud) {
         canbus_autobaud_enable = false;
     } else {
         canbus_autobaud_enable = true;
@@ -467,7 +473,7 @@ static void on_canbus_baudrate_confirmed(uint32_t canbus_baud) {
 
     if (shared_msg_valid && shared_msg.canbus_info.local_node_id > 0 && shared_msg.canbus_info.local_node_id <= 127) {
         uavcan_set_node_id(shared_msg.canbus_info.local_node_id);
-    } else if (shared_app_descriptor.canbus_local_node_id > 0 && shared_app_descriptor.canbus_local_node_id <= 127) {
+    } else if (shared_app_parameters.canbus_local_node_id > 0 && shared_app_parameters.canbus_local_node_id <= 127) {
         uavcan_set_node_id(shared_msg.canbus_info.local_node_id);
     }
 }
@@ -486,7 +492,9 @@ int main(void)
 
     // main loop
     while(1) {
+        update_canbus_autobaud();
         uavcan_update();
+
         icm_update();
         led_update();
 

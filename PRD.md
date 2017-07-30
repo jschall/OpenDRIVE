@@ -8,17 +8,17 @@
         - ~~Reports application software version data per UAVCAN specification~~
         - Switches LEDs off immediately
         - Boots immediately if the I2C slave interface is connected to a master
-        - Follows guidance provided by loaded application vis-a-vis:
+        - ~~Follows guidance provided by loaded application vis-a-vis:~~
             - ~~Boot timeout (default = forever)~~
             - ~~UAVCAN initial baud rate (default = 1e6)~~
             - ~~UAVCAN auto baud enable (default = enabled)~~
             - ~~UAVCAN initial node ID (default = dynamically allocated)~~
-        - Provides data to application:
+        - ~~Provides data to application:~~
             - ~~Hardware/UAVCAN node name~~
             - ~~Hardware version~~
             - ~~UAVCAN baud rate, if detected~~
             - ~~UAVCAN local node id, if detected or specified by application~~
-            - Boot reason (firmware update, timeout, reboot command, or I2C slave interface present)
+            - ~~Boot reason (firmware update, timeout, reboot command, or I2C slave interface present)~~
     - Application:
         - ~~Provides UAVCAN interface for debugging and firmware update~~
         - Provides driver for onboard ICM-20948 (compass only)
