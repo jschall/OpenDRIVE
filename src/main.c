@@ -418,6 +418,7 @@ static void uavcan_ready_handler(void) {
 }
 
 static bool canbus_autobaud_running;
+static bool canbus_initialized;
 static struct canbus_autobaud_state_s autobaud_state;
 static void on_canbus_baudrate_confirmed(uint32_t canbus_baud);
 
@@ -463,6 +464,7 @@ static void update_canbus_autobaud(void) {
 
 static void on_canbus_baudrate_confirmed(uint32_t canbus_baud) {
     canbus_init(canbus_baud, false);
+    canbus_initialized = true;
     uavcan_init();
 
     set_uavcan_node_info();
@@ -493,7 +495,9 @@ int main(void)
     // main loop
     while(1) {
         update_canbus_autobaud();
-        uavcan_update();
+        if (canbus_initialized) {
+            uavcan_update();
+        }
 
         icm_update();
         led_update();
