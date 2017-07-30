@@ -133,6 +133,7 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
 }
 
 static void i2c_slave_init(void) {
+    rcc_periph_clock_enable(RCC_GPIOA);
     rcc_periph_clock_enable(RCC_I2C2);
     i2c_reset(I2C2);
     gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, GPIO9|GPIO10);
