@@ -51,7 +51,7 @@ struct uavcan_node_info_s {
     uint64_t sw_image_crc;
 };
 
-typedef bool (*restart_handler_ptr)(void);
+typedef void (*restart_handler_ptr)(struct uavcan_transfer_info_s transfer_info, uint64_t magic);
 typedef void (*file_beginfirmwareupdate_handler_ptr)(struct uavcan_transfer_info_s transfer_info, uint8_t source_node_id, const char* path);
 typedef void (*file_read_response_handler_ptr)(uint8_t transfer_id, int16_t error, const uint8_t* data, uint16_t data_len, bool eof);
 typedef void (*uavcan_ready_handler_ptr)(void);
@@ -71,4 +71,5 @@ void uavcan_set_node_info(struct uavcan_node_info_s new_node_info);
 void uavcan_send_debug_key_value(const char* name, float val);
 void uavcan_send_debug_logmessage(enum uavcan_loglevel_t log_level, const char* source, const char* text);
 void uavcan_send_file_beginfirmwareupdate_response(struct uavcan_transfer_info_s* transfer_info, enum uavcan_beginfirmwareupdate_error_t error, const char* error_message);
+void uavcan_send_restart_response(struct uavcan_transfer_info_s* transfer_info, bool ok);
 uint8_t uavcan_send_file_read_request(uint8_t remote_node_id, const uint64_t offset, const char* path);

@@ -69,6 +69,7 @@ static uavcan_ready_handler_ptr uavcan_ready_cb;
 
 static CanardInstance canard;
 static uint8_t canard_memory_pool[1024];
+static bool canard_initialized;
 
 static uint8_t node_health = UAVCAN_HEALTH_OK;
 static uint8_t node_mode   = UAVCAN_MODE_INITIALIZATION;
@@ -104,10 +105,15 @@ void uavcan_init(void)
     desig_get_unique_id((uint32_t*)&node_unique_id[0]);
     canardInit(&canard, canard_memory_pool, sizeof(canard_memory_pool), onTransferReceived, shouldAcceptTransfer, NULL);
     allocation_init();
+    canard_initialized = true;
 }
 
 void uavcan_update(void)
 {
+    if (!canard_initialized) {
+        return;
+    }
+
     uint32_t tnow_ms = millis();
     if (tnow_ms-last_1hz_ms >= 1000) {
         process1HzTasks();
@@ -404,17 +410,19 @@ static void handle_get_node_info_request(CanardInstance* ins, CanardRxTransfer* 
 
 static void handle_restart_node_request(CanardInstance* ins, CanardRxTransfer* transfer)
 {
-    static const uint8_t OK = 1;
-    uint8_t resp_buf[UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE];
     uint64_t magic;
     canardDecodeScalar(transfer, 0, 40, false, &magic);
-    if (magic == 0xACCE551B1E) {
-        if (restart_cb && restart_cb()) {
-            canardEncodeScalar(resp_buf, 0, 1, &OK);
-        }
+    if (restart_cb) {
+        restart_cb(get_transfer_info(ins, transfer), magic);
     }
+}
 
-    canardRequestOrRespond(ins, transfer->source_node_id, UAVCAN_RESTARTNODE_DATA_TYPE_SIGNATURE, UAVCAN_RESTARTNODE_DATA_TYPE_ID, &transfer->transfer_id, transfer->priority, CanardResponse, resp_buf, UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE);
+void uavcan_send_restart_response(struct uavcan_transfer_info_s* transfer_info, bool ok)
+{
+    uint8_t resp_buf[UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE];
+    canardEncodeScalar(resp_buf, 0, 1, &ok);
+
+    canardRequestOrRespond(transfer_info->canardInstance, transfer_info->remote_node_id, UAVCAN_RESTARTNODE_DATA_TYPE_SIGNATURE, UAVCAN_RESTARTNODE_DATA_TYPE_ID, &transfer_info->transfer_id, transfer_info->priority, CanardResponse, resp_buf, UAVCAN_RESTARTNODE_RESPONSE_MAX_SIZE);
 }
 
 static void handle_file_beginfirmwareupdate_request(CanardInstance* ins, CanardRxTransfer* transfer)
