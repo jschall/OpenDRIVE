@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include "spi.h"
 #include "timing.h"
+#include "i2c_slave_interface.h"
 
 static uint8_t icm_spi_transfer(uint16_t data) {
     spi_begin(SPI_DEVICE_ICM);
@@ -120,7 +121,7 @@ void icm_init(void) {
 
         usleep(100000);
 
-        // Place AK09916 in single measurement mode
+        // Place AK09916 in continuous measurement mode 4 (100hz), readback and verify
         failed = failed || !icm_i2c_slv_write(AK09916_I2C_ADDR, 0x31, 0x08);
         failed = failed || !icm_i2c_slv_read(AK09916_I2C_ADDR, 0x31, &byte) || byte != 0x08;
 
@@ -129,8 +130,6 @@ void icm_init(void) {
         icm_write_reg(ICM20948_I2C_SLV0_ADDR, AK09916_I2C_ADDR|0x80);
         icm_write_reg(ICM20948_I2C_SLV0_REG, 0x10);
         icm_write_reg(ICM20948_I2C_SLV0_CTRL, (1<<7)|9);
-
-
 
         if (!failed) {
             icm_initialized = true;
@@ -143,7 +142,9 @@ fail:
     }
 }
 
-void icm_update(void) {
+static struct ak09916_measurement_s ak09916_measurement;
+
+static void ak09916_update(void) {
     // TODO interrupt driven
     if (!icm_initialized || (icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_00) & (1<<0)) == 0) {
         return;
@@ -154,5 +155,28 @@ void icm_update(void) {
         meas_bytes[i] = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_01+i);
     }
 
-    // TODO do something with compass measurement
+    uint8_t st2 = icm_read_reg(ICM20948_EXT_SLV_SENS_DATA_08);
+
+    int16_t temp = 0;
+    temp |= (uint16_t)meas_bytes[0];
+    temp |= (uint16_t)meas_bytes[1]<<8;
+    ak09916_measurement.x = temp*42120.0/32752.0;
+
+    temp = 0;
+    temp |= (uint16_t)meas_bytes[2];
+    temp |= (uint16_t)meas_bytes[3]<<8;
+    ak09916_measurement.y = temp*42120.0/32752.0;
+
+    temp = 0;
+    temp |= (uint16_t)meas_bytes[4];
+    temp |= (uint16_t)meas_bytes[5]<<8;
+    ak09916_measurement.z = temp*42120.0/32752.0;
+
+    ak09916_measurement.hofl = (st2 & (1<<3)) != 0;
+
+    i2c_slave_new_compass_data(ak09916_measurement.x, ak09916_measurement.y, ak09916_measurement.z, ak09916_measurement.hofl);
+}
+
+void icm_update(void) {
+    ak09916_update();
 }

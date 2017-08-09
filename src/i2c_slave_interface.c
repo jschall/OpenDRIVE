@@ -24,9 +24,12 @@ void i2c_slave_init(void) {
     i2c_set_data_hold_time(I2C2,11);
     i2c_enable_stretching(I2C2);
     i2c_set_7bit_addr_mode(I2C2);
-    I2C_OAR1(I2C2) = (0x55&0xFF) << 1;
+    I2C_OAR1(I2C2) = (TOSHIBALED_I2C_ADDRESS&0xFF) << 1;
     I2C_OAR1(I2C2) |= (1<<15);
+    I2C_OAR2(I2C2) = (AK09916_I2C_ADDRESS&0xFF) << 1;
+    I2C_OAR2(I2C2) |= (1<<15);
     nvic_enable_irq(NVIC_I2C2_EV_EXTI24_IRQ);
+    I2C_CR1(I2C2) |= (1<<1); // TXIE
     I2C_CR1(I2C2) |= (1<<2); // RXIE
     I2C_CR1(I2C2) |= (1<<3); // ADDRIE
     i2c_peripheral_enable(I2C2);
@@ -41,8 +44,8 @@ struct compass_register_s {
 };
 
 static struct compass_register_s compass_registers[] = {
-    {0x00, false, false, 0x01, 0x00},
-    {0x01, false, false, 0x02, 0x00},
+    {0x00, false, false, 0x01, 0x48},
+    {0x01, false, false, 0x02, 0x09},
     {0x02, false, false, 0x03, 0x00},
     {0x03, false, false, 0x10, 0x00},
     {0x10, false, false, 0x11, 0x00},
@@ -104,9 +107,9 @@ void i2c_slave_new_compass_data(float x, float y, float z, bool hofl) {
     }
 
     if (update_now) {
-        x = constrain_float(x*32752.0/4912.0, -32752, 32752);
-        y = constrain_float(y*32752.0/4912.0, -32752, 32752);
-        z = constrain_float(z*32752.0/4912.0, -32752, 32752);
+        x = constrain_float(x*32752.0/49120.0, -32752, 32752);
+        y = constrain_float(-y*32752.0/49120.0, -32752, 32752);
+        z = constrain_float(-z*32752.0/49120.0, -32752, 32752);
 
         struct compass_register_s* meas_reg = get_compass_register(0x11);
         (meas_reg++)->value = (int16_t)x & 0xff;
@@ -147,17 +150,32 @@ static void ak09916_interface_recv_byte(uint8_t recv_byte_idx, uint8_t recv_byte
     }
 }
 
+static uint8_t ak09916_interface_send_byte(uint8_t transmit_byte_idx) {
+    UNUSED(transmit_byte_idx);
 
-// TODO on transmit byte:
-// if reg->read_locks_data, set compass_update_lock and clear DOR and DRDY
-// if reg->address == 0x18, clear compass_update_lock
-// if
+    struct compass_register_s* st1_reg = get_compass_register(0x10);
+    struct compass_register_s* accessed_reg = compass_curr_register;
+
+    if (accessed_reg->read_locks_data && (st1_reg->value&(1<<1)) != 0) {
+        compass_update_lock = true;
+        st1_reg->value &= ~0b11;
+    }
+
+    if (accessed_reg->address == 0x18) {
+        compass_update_lock = false;
+    }
+
+    set_compass_register_address(accessed_reg->next_address);
+
+    return accessed_reg->value;
+}
 
 static uint32_t led_color_hex;
 static uint8_t led_reg;
+
 static void toshibaled_interface_recv_byte(uint8_t recv_byte_idx, uint8_t recv_byte) {
-    if (recv_byte_idx == 0) {
-        led_reg = recv_byte;
+    if (recv_byte_idx == 0 || ((recv_byte&(1<<7)) != 0)) {
+        led_reg = recv_byte & ~(1<<7);
     } else {
         switch(led_reg) {
             case 1:
@@ -181,25 +199,44 @@ uint32_t i2c_slave_retrieve_led_color_hex(void) {
     return led_color_hex;
 }
 
-static uint8_t i2c2_recv_byte_idx;
+static uint8_t i2c2_transfer_byte_idx;
 static uint8_t i2c2_transfer_address;
+static uint8_t i2c2_transfer_direction;
+
 void i2c2_ev_exti24_isr(void) {
     if (I2C_ISR(I2C2) & (1<<3)) { // ADDR
         i2c2_transfer_address = (I2C_ISR(I2C2) >> 17) & 0x7FU; // ADDCODE
-        i2c2_recv_byte_idx = 0;
-        I2C_ICR(I2C2) |= (1<<3);
+        i2c2_transfer_direction = (I2C_ISR(I2C2) >> 16) & 1; // direction
+        i2c2_transfer_byte_idx = 0;
+        if (i2c2_transfer_direction) {
+            I2C_ISR(I2C2) |= (1<<0); // TXE
+        }
+        I2C_ICR(I2C2) |= (1<<3); // ADDRCF
     }
 
     if (i2c_received_data(I2C2)) {
         uint8_t recv_byte = i2c_get_data(I2C2); // reading clears our interrupt flag
         switch(i2c2_transfer_address) {
             case TOSHIBALED_I2C_ADDRESS:
-                toshibaled_interface_recv_byte(i2c2_recv_byte_idx, recv_byte);
+                toshibaled_interface_recv_byte(i2c2_transfer_byte_idx, recv_byte);
                 break;
             case AK09916_I2C_ADDRESS:
-                ak09916_interface_recv_byte(i2c2_recv_byte_idx, recv_byte);
+                ak09916_interface_recv_byte(i2c2_transfer_byte_idx, recv_byte);
                 break;
         }
-        i2c2_recv_byte_idx++;
+        i2c2_transfer_byte_idx++;
+    }
+
+    if (i2c_transmit_int_status(I2C2)) {
+        uint8_t send_byte = 0;
+        switch(i2c2_transfer_address) {
+            case AK09916_I2C_ADDRESS:
+                send_byte = ak09916_interface_send_byte(i2c2_transfer_byte_idx);
+                break;
+        }
+
+        i2c_send_data(I2C2, send_byte);
+
+        i2c2_transfer_byte_idx++;
     }
 }
