@@ -136,7 +136,6 @@ static void file_beginfirmwareupdate_handler(struct uavcan_transfer_info_s trans
 }
 
 static void uavcan_ready_handler(void) {
-    icm_init();
 }
 
 static bool canbus_autobaud_running;
@@ -209,6 +208,7 @@ int main(void) {
 
     begin_canbus_autobaud();
 
+    icm_init();
     i2c_slave_init();
 
     // main loop
