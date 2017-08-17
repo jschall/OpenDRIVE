@@ -1,7 +1,7 @@
 #include "icm.h"
 #include <stdint.h>
 #include "spi.h"
-#include "timing.h"
+#include <common/timing.h>
 #include "i2c_slave_interface.h"
 
 static uint8_t icm_spi_transfer(uint16_t data) {

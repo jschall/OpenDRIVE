@@ -15,14 +15,15 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "timing.h"
-#include "init.h"
-#include "can.h"
-#include "uavcan.h"
-#include "flash.h"
+#include <common/timing.h>
+#include <common/init.h>
+#include <common/can.h>
+#include <common/uavcan.h>
+#include <common/flash.h>
 #include <libopencm3/cm3/scb.h>
 #include <string.h>
-#include <bootloader/shared.h>
+#include <common/shared_app_descriptor.h>
+#include <common/shared_boot_msg.h>
 #include <stdlib.h>
 #include <math.h>
 #include "icm.h"

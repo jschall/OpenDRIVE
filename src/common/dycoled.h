@@ -1,6 +1,6 @@
 #pragma once
 
-#include <common/dycoled_gen.h>
+#include "dycoled_gen.h"
 #include <stdint.h>
 
 #ifndef NUM_DYCOLEDS

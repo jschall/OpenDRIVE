@@ -1,0 +1,18 @@
+{
+    "recipes": {
+        "c_obj": "{{CC}} {{CFLAGS}}"
+    },
+    "rules": {
+        "build/board_com.proficnc.gnss_1.0/.+": {"config": "board_com.proficnc.gnss_1.0"},
+        "build/([^/]+)/app.elf": {"config": ["app"], "depends": ["build/\\1/.+\\.o"]},
+        "build/board_com.proficnc.gnss_1.0/.+\\.o": {"recipe": "c_obj"},
+        "build/board_com.proficnc.gnss_1.0/common/([^/]+)\\.o": {"source":"{{COMMON_DIR}}/src/\\1.c"}
+    },
+    "configs": {
+        "global": {"CFLAGS": },
+        "stm32f3": {"include": "global"},
+        "stm32f7": {"include": "global"},
+        "board_com.proficnc.gnss_1.0": {"include": ["stm32f3"]},
+        "board_com.matternet.motordrive_1.0": {"include": ["stm32f7"]}
+    }
+}

@@ -16,4 +16,3 @@
 #pragma once
 
 void init_clock(void);
-void init_gpio_can(void);

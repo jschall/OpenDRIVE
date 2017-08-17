@@ -1,5 +1,5 @@
 #include "i2c_slave_interface.h"
-#include "helpers.h"
+#include <common/helpers.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/i2c.h>

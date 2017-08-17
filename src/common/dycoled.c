@@ -1,5 +1,5 @@
 #include "dycoled.h"
-#include <common/timing.h>
+#include "timing.h"
 #include "spi.h"
 
 static struct dycoled_gen_color_s led_colors[NUM_DYCOLEDS];
