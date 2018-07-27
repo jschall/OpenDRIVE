@@ -41,7 +41,8 @@ static struct {
     float foc_bandwidth_hz;
     float start_current;
     enum commutation_method_t commutation_method;
-    bool reverse;
+    bool mot_reverse;
+    bool enc_reverse;
     float R_s;
     float L_d;
     float L_q;
@@ -105,7 +106,8 @@ static void load_config(void)
     params.foc_bandwidth_hz = *param_retrieve_by_name("ESC_FOC_BANDWIDTH");
     params.start_current = *param_retrieve_by_name("ESC_FOC_START_CURR");
     params.commutation_method = (enum commutation_method_t)*param_retrieve_by_name("ESC_MOT_COMM_METHOD");
-    params.reverse = (bool)*param_retrieve_by_name("ESC_MOT_REVERSE");
+    params.mot_reverse = (bool)*param_retrieve_by_name("ESC_MOT_REVERSE"); // Rotation direction with respect to motor wiring
+    params.enc_reverse = (bool)*param_retrieve_by_name("ESC_ENC_REVERSE"); // Encoder direction with respect to motor wiring
     params.R_s = *param_retrieve_by_name("ESC_MOT_R");
     params.L_d = *param_retrieve_by_name("ESC_MOT_L_D");
     params.L_q = *param_retrieve_by_name("ESC_MOT_L_Q");
@@ -129,7 +131,12 @@ static void load_config(void)
 static void retrieve_encoder_measurement(void)
 {
     encoder_read_angle();
-    encoder_state.mech_theta = wrap_2pi(encoder_get_angle_rad());
+    if (params.enc_reverse == params.mot_reverse) {
+        encoder_state.mech_theta = wrap_2pi(encoder_get_angle_rad());
+    } else {
+        encoder_state.mech_theta = wrap_2pi(-encoder_get_angle_rad());
+    }
+
     encoder_state.elec_theta = wrap_2pi(encoder_state.mech_theta*params.mot_n_pole_pairs-params.elec_theta_bias);
 
     static uint32_t last_print_us;
@@ -142,7 +149,7 @@ static void retrieve_encoder_measurement(void)
 void motor_init(void)
 {
     load_config();
-    inverter_set_reverse(params.reverse);
+    inverter_set_reverse(params.mot_reverse);
 
     // initialize encoder filter states
     retrieve_encoder_measurement();
@@ -188,11 +195,7 @@ bool motor_update(void)
     }
 
     // Transform inverter measurements to 2-phase equivalent values in stationary (alpha-beta) and synchronous (d-q) frames
-    if (!params.reverse) {
-        transform_a_b_c_to_alpha_beta(inverter_sense_data.i_a, inverter_sense_data.i_b, inverter_sense_data.i_c, &motor_state.i_alpha, &motor_state.i_beta);
-    } else {
-        transform_a_b_c_to_alpha_beta(inverter_sense_data.i_a, inverter_sense_data.i_c, inverter_sense_data.i_b, &motor_state.i_alpha, &motor_state.i_beta);
-    }
+    transform_a_b_c_to_alpha_beta(inverter_sense_data.i_a, inverter_sense_data.i_b, inverter_sense_data.i_c, &motor_state.i_alpha, &motor_state.i_beta);
     transform_alpha_beta_to_d_q(motor_state.elec_theta, motor_state.i_alpha, motor_state.i_beta, &motor_state.i_d, &motor_state.i_q);
 
     inverter_get_alpha_beta_output_voltages(&prev_u_alpha, &prev_u_beta);
@@ -392,8 +395,7 @@ static void run_encoder_calibration(void)
 
                 // rotating the field in the positive direction should have rotated the encoder in the positive direction too
                 if (angle_diff < 0) {
-                    params.reverse = !params.reverse;
-                    inverter_set_reverse(params.reverse);
+                    params.enc_reverse = !params.enc_reverse;
                 }
 
                 encoder_cal_state.step = 2;

@@ -144,6 +144,13 @@ static void update_sense_data(void)
         sense_data[next_sense_data_idx].i_b = (adc_sample->csa_v[1]-csa_cal[1])/(drv_get_csa_gain()*params.csa_R);
         sense_data[next_sense_data_idx].i_c = -sense_data[next_sense_data_idx].i_a-sense_data[next_sense_data_idx].i_b;
     }
+
+    if (reverse) {
+        float temp = sense_data[next_sense_data_idx].i_b;
+        sense_data[next_sense_data_idx].i_b = sense_data[next_sense_data_idx].i_c;
+        sense_data[next_sense_data_idx].i_c = temp;
+    }
+
     sense_data_idx = next_sense_data_idx;
 }
 

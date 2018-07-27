@@ -52,6 +52,7 @@ static const struct param_info_s param_info_table[] = {
     {.name = "ESC_MOT_CAL_V",                            .default_val =    2.0, .min_val =       0, .max_val = 10.0,    .type=PARAM_TYPE_FLOAT},
     {.name = "ESC_MOT_COMM_METHOD",                      .default_val =    0.0, .min_val =       0, .max_val = 1,       .type=PARAM_TYPE_INT},
     {.name = "ESC_MOT_REVERSE",                          .default_val =    0.0, .min_val =       0, .max_val = 1,       .type=PARAM_TYPE_INT},
+    {.name = "ESC_ENC_REVERSE",                          .default_val =    0.0, .min_val =       0, .max_val = 1,       .type=PARAM_TYPE_INT},
     {.name = "ESC_FOC_BANDWIDTH",                        .default_val =  100.0, .min_val =      20, .max_val = 1000.0,  .type=PARAM_TYPE_FLOAT},
     {.name = "ESC_FOC_START_CURR",                       .default_val =    3.0, .min_val =       0, .max_val = 10,      .type=PARAM_TYPE_FLOAT},
     {.name = "ESC_FOC_CURR_LIM",                         .default_val =      0, .min_val =       0, .max_val = 1e3,     .type=PARAM_TYPE_FLOAT},
