@@ -146,7 +146,7 @@ static uint32_t last_command_us;
 static uint32_t last_status_us;
 
 static void handle_uavcan_esc_rawcommand(uint8_t len, int16_t* commands) {
-    const float min_duty = 0.08;
+    const float min_duty = 0.0;
     if (esc_index < len) {
         if (commands[esc_index] == 0) {
             motor_set_mode(MOTOR_MODE_DISABLED);
@@ -158,6 +158,11 @@ static void handle_uavcan_esc_rawcommand(uint8_t len, int16_t* commands) {
                 motor_set_duty_ref(commands[esc_index]/8191.0f*(1.0f-min_duty)-min_duty);
             }
         }
+
+        char key[5];
+        snprintf(key, 5, "msp%u", (unsigned)esc_index);
+        uavcan_send_debug_key_value(key, motor_get_phys_rotor_ang_vel());
+
         last_command_us = micros();
     }
 }

@@ -173,7 +173,7 @@ bool motor_update(void)
     retrieve_encoder_measurement();
 
     // Differentiate encoder angle measurement and apply LPF
-    const float tc = 0.0002f;
+    const float tc = 0.002f;
     const float alpha = dt/(dt+tc);
     encoder_state.mech_omega_est += (wrap_pi(encoder_state.mech_theta-encoder_state.prev_mech_theta)/dt - encoder_state.mech_omega_est) * alpha;
     encoder_state.prev_mech_theta = encoder_state.mech_theta;
@@ -207,11 +207,11 @@ bool motor_update(void)
             break;
 
         case MOTOR_MODE_FOC_DUTY: {
-            if (duty_ref >= -0.08 && duty_ref <= 0.08) {
-                duty_ref = constrain_float(duty_tgt, duty_ref-dt*0.08/3, duty_ref+dt*0.08/3);
-            } else {
+//             if (duty_ref >= -0.08 && duty_ref <= 0.08) {
+//                 duty_ref = constrain_float(duty_tgt, duty_ref-dt*0.08/3, duty_ref+dt*0.08/3);
+//             } else {
                 duty_ref = duty_tgt;
-            }
+//             }
 
             motor_set_iq_ref((duty_ref*inverter_sense_data.v_bus/sqrtf(3.0) - motor_state.elec_omega*params.lambda_m)/params.R_s);
             run_foc();
@@ -343,12 +343,12 @@ static void run_foc(void)
     iq_pid_param.i_meas = motor_state.i_q;
 
     float u_alpha, u_beta;
-    bool overmodulation = false;
+    bool overmodulation = true;
 
-    id_pid_param.i_ref = constrain_float(params.start_current-fabsf(motor_state.elec_omega)/60, 0.0f, params.start_current);
+    id_pid_param.i_ref = 0;//constrain_float(params.start_current-fabsf(motor_state.elec_omega)/60, 0.0f, params.start_current);
 
-    id_pid_param.ff = 0;//(-params.L_q*motor_state.i_q*motor_state.elec_omega);
-    iq_pid_param.ff = 0;//(params.L_d*motor_state.i_d*motor_state.elec_omega + params.lambda_m*motor_state.elec_omega);
+    id_pid_param.ff = (-params.L_q*motor_state.i_q*motor_state.elec_omega);
+    iq_pid_param.ff = (params.L_d*motor_state.i_d*motor_state.elec_omega + params.lambda_m*motor_state.elec_omega);
 
     if (overmodulation) {
         id_pid_param.output_limit = inverter_sense_data.v_bus*2.0f/3.0f;
@@ -409,17 +409,19 @@ static void run_encoder_calibration(void)
             params.elec_theta_bias = wrap_pi(params.elec_theta_bias - atan2f(motor_state.i_q, motor_state.i_d));
 
             *param_retrieve_by_name("ESC_ENC_EBIAS") = params.elec_theta_bias;
-            *param_retrieve_by_name("ESC_MOT_REVERSE") = params.reverse;
+            *param_retrieve_by_name("ESC_ENC_REVERSE") = params.enc_reverse;
             *param_retrieve_by_name("ESC_MOT_POLE_PAIRS") = params.mot_n_pole_pairs;
             param_write();
 //             motor_set_mode(MOTOR_MODE_DISABLED);
             encoder_cal_state.step = 3;
             break;
         case 3:
-            theta = constrain_float(M_PI_F + M_PI_F * (t-2.5f)/1.0f, M_PI_F, M_PI_F*2*params.mot_n_pole_pairs);
-            if (theta == M_PI_F*2*params.mot_n_pole_pairs) {
-                motor_set_mode(MOTOR_MODE_DISABLED);
-            }
+            uavcan_send_debug_key_value("atan", atan2f(motor_state.i_q, motor_state.i_d));
+            motor_set_mode(MOTOR_MODE_DISABLED);
+//             theta = constrain_float(M_PI_F + M_PI_F * (t-2.5f)/1.0f, M_PI_F, M_PI_F*2*params.mot_n_pole_pairs);
+//             if (theta == M_PI_F*2*params.mot_n_pole_pairs) {
+//                 motor_set_mode(MOTOR_MODE_DISABLED);
+//             }
             break;
     }
 
